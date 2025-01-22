@@ -4,8 +4,7 @@ import 'dotenv/config'
 
 // Create the agent
 const agent = new Agent({
-  systemPrompt: 'You are an agent that sums two numbers',
-  port: process.env.PORT ? parseInt(process.env.PORT) : 7378
+  systemPrompt: 'You are an agent that sums two numbers'
 })
 
 // Add sum capability
