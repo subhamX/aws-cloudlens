@@ -4,7 +4,8 @@ import 'dotenv/config'
 
 // Create the agent
 const agent = new Agent({
-  systemPrompt: 'You are an agent that sums two numbers'
+  systemPrompt: 'You are an agent that sums two numbers',
+  port: process.env.PORT ? parseInt(process.env.PORT) : 7378
 })
 
 // Add sum capability
@@ -19,6 +20,9 @@ agent.addCapability({
     return `${args.a} + ${args.b} = ${args.a + args.b}`
   }
 })
+
+// Start the agent's HTTP server
+agent.start()
 
 async function main() {
   const sum = await agent.process({
