@@ -35,7 +35,8 @@ Capabilities Description: `I perform basic arithmetic operations`
 2. Add Endpoint URL: set the agent's endpoint URL to your tunnelling URL (e.g. ngrok) --> Save
 3. Create an API key: Manage this agent --> Create secret key --> Copy secret key
 
-### 3. Create an OpenAI API key
+### (Optional) 3. Create an OpenAI API key
+OpenAI key is only required if you want to use the ```.process()``` method, so that you can use/try the capabilities you built without the OpenServ platform.
 
 1. Create an account on [OpenAI](https://platform.openai.com/)
 2. Create an API key: API keys --> Create new secret key --> Copy key
