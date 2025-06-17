@@ -535,107 +535,13 @@ class InfraGuardianTelegramBot extends Agent {
                 }
             })
 
-            // Create canvas for priority distribution - Using Stacked Bar
-            const priorityDistCanvas = createCanvas(800, 400)
-            const priorityDistCtx = priorityDistCanvas.getContext('2d')
-
-            // Calculate total findings
-            const findingsValues = Object.values(stats.findingsByPriority || {})
-                .map(val => typeof val === 'number' ? val : 0);
-            const totalFindings = findingsValues.reduce((sum, val) => sum + val, 0);
-
-            // Priority distribution chart
-            new Chart(priorityDistCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['Findings Distribution'],
-                    datasets: [
-                        {
-                            label: 'Critical',
-                            data: [stats.findingsByPriority?.critical || 0],
-                            backgroundColor: '#dc3545',
-                            borderWidth: 1,
-                            borderColor: '#ffffff'
-                        },
-                        {
-                            label: 'High',
-                            data: [stats.findingsByPriority?.high || 0],
-                            backgroundColor: '#fd7e14',
-                            borderWidth: 1,
-                            borderColor: '#ffffff'
-                        },
-                        {
-                            label: 'Medium',
-                            data: [stats.findingsByPriority?.medium || 0],
-                            backgroundColor: '#ffc107',
-                            borderWidth: 1,
-                            borderColor: '#ffffff'
-                        },
-                        {
-                            label: 'Low',
-                            data: [stats.findingsByPriority?.low || 0],
-                            backgroundColor: '#20c997',
-                            borderWidth: 1,
-                            borderColor: '#ffffff'
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: 'Priority Distribution',
-                            font: {
-                                size: 20,
-                                weight: 'bold'
-                            },
-                            padding: 20
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    const value = context.raw as number;
-                                    const percentage = totalFindings > 0 ? ((value / totalFindings) * 100).toFixed(1) : '0.0';
-                                    return `${context.dataset.label}: ${value} (${percentage}%)`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            stacked: true,
-                            grid: {
-                                display: false
-                            }
-                        },
-                        y: {
-                            stacked: true,
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: 'Number of Findings',
-                                font: {
-                                    size: 14,
-                                    weight: 'bold'
-                                }
-                            }
-                        }
-                    }
-                }
-            })
-
             // Convert canvases to buffers
             const priorityBuffer = priorityCanvas.toBuffer('image/png')
             const categoryBuffer = categoryCanvas.toBuffer('image/png')
-            const priorityDistBuffer = priorityDistCanvas.toBuffer('image/png')
 
             // Send charts
             await this.bot.sendPhoto(chatId, priorityBuffer, {
                 caption: '🎯 Priority Distribution (Doughnut View)'
-            })
-            await this.bot.sendPhoto(chatId, priorityDistBuffer, {
-                caption: '📊 Priority Distribution (Stacked View)'
             })
             await this.bot.sendPhoto(chatId, categoryBuffer, {
                 caption: '📈 Category-wise Findings (Horizontal Bar View)'
