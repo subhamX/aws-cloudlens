@@ -1,7 +1,7 @@
 import { pgTable, integer, varchar, boolean, timestamp, text, json } from "drizzle-orm/pg-core"
-import { ConsolidatedS3ReportSchema } from "../../src/s3Types"
+import { ConsolidatedS3ReportSchema } from "../../src/localAgents/s3Types"
 import { z } from "zod"
-import { ConsolidatedEC2ReportSchema } from "../../src/ec2EbsTypes"
+import { ConsolidatedEC2ReportSchema } from "../../src/localAgents/ec2EbsTypes"
 
 export const telegramUsers = pgTable("telegram_users", {
   telegramId: varchar("telegram_id", { length: 20 }).primaryKey(),

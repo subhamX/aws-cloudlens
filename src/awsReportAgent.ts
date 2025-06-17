@@ -1,29 +1,8 @@
 // Make sure to install the following if you haven't:
 // bun add ai @ai-sdk/openai zod @aws-sdk/client-s3 @aws-sdk/client-ec2 @aws-sdk/client-cloudformation @openserv-labs/sdk
-import { generateObject } from 'ai'; // generateText is no longer used for S3 reporting
-import { z } from 'zod';
-import { getMyModel } from './utils/myModel'; // Assuming this utility exists
-import {
-  S3Client,
-  ListBucketsCommand,
-  ListObjectsV2Command,
-  GetBucketPolicyCommand,
-  GetBucketAclCommand,
-  GetBucketVersioningCommand,
-  GetBucketLoggingCommand,
-  GetBucketLifecycleConfigurationCommand,
-  GetBucketEncryptionCommand,
-  GetPublicAccessBlockCommand,
-  GetBucketTaggingCommand,
-} from '@aws-sdk/client-s3';
 import { Agent } from '@openserv-labs/sdk';
-import { drizzleDb } from '../drizzle-db/db';
-import { awsReports, stagingData } from '../drizzle-db/schema';
-import { eq } from 'drizzle-orm';
-import { ConsolidatedS3ReportSchema, S3BucketAnalysisSchema } from './s3Types'
-import addS3Capabilities from './s3Capabilities';
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import { addEC2EBSCapabilities } from './ec2EbsCapabilities';
+import addS3Capabilities from './localAgents/s3Capabilities';
+import { addEC2EBSCapabilities } from './localAgents/ec2EbsCapabilities';
 
 
 

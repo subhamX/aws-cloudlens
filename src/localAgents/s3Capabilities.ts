@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { S3Client, ListBucketsCommand, ListObjectsV2Command, GetBucketPolicyCommand, GetBucketAclCommand, GetBucketVersioningCommand, GetBucketLoggingCommand, GetBucketLifecycleConfigurationCommand, GetBucketEncryptionCommand, GetPublicAccessBlockCommand, GetBucketTaggingCommand } from '@aws-sdk/client-s3';
 import { generateObject } from 'ai';
-import { getMyModel } from './utils/myModel';
-import { drizzleDb } from '../drizzle-db/db';
-import { awsReports, stagingData } from '../drizzle-db/schema';
+import { getMyModel } from '../utils/myModel';
+import { drizzleDb } from '../../drizzle-db/db';
+import { awsReports, stagingData } from '../../drizzle-db/schema';
 import { eq } from 'drizzle-orm';
 import { ConsolidatedS3ReportSchema, S3BucketAnalysisSchema } from './s3Types';
 import { Agent, Capability } from '@openserv-labs/sdk';

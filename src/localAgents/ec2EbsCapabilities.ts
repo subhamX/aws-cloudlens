@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { EC2Client, DescribeInstancesCommand, DescribeVolumesCommand } from '@aws-sdk/client-ec2';
-import { drizzleDb } from '../drizzle-db/db';
-import {  stagingData } from '../drizzle-db/schema';
+import { drizzleDb } from '../../drizzle-db/db';
+import {  stagingData } from '../../drizzle-db/schema';
 import { Agent } from '@openserv-labs/sdk';
 
 export const addEC2EBSCapabilities = (agent: Agent) => {
