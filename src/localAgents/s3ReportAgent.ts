@@ -1,6 +1,6 @@
 import { generateText, tool } from 'ai';
 import { z } from 'zod';
-import { getMyModel } from './utils/myModel';
+import { getMyModel } from '../utils/myModel';
 import { S3Client, GetBucketLocationCommand, GetBucketAclCommand } from '@aws-sdk/client-s3';
 
 const fetchS3BucketDetailsTool = tool({

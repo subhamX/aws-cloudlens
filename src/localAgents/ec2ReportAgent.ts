@@ -1,6 +1,6 @@
 import { generateText, tool } from 'ai';
 import { z } from 'zod';
-import { getMyModel } from './utils/myModel';
+import { getMyModel } from '../utils/myModel';
 
 const fetchEc2InstanceDetailsTool = tool({
   description: 'Analyze EC2 instance details.',

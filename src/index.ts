@@ -2,9 +2,11 @@ import { z } from 'zod'
 import { Agent } from '@openserv-labs/sdk'
 import 'dotenv/config'
 import AwsInfraGuardianAgent from './awsReportAgent'
+import InfraGuardianTelegramBot from './telegramOnboardBot'
 
 // Create the agent
-const agent = new AwsInfraGuardianAgent()
+const infraGuardianAwsAgent = new AwsInfraGuardianAgent()
+const telegramBot = new InfraGuardianTelegramBot()
 
 // // Add sum capability
 // agent.addCapability({
@@ -20,7 +22,11 @@ const agent = new AwsInfraGuardianAgent()
 // })
 
 // Start the agent's HTTP server
-agent.start()
+
+
+infraGuardianAwsAgent.start()
+telegramBot.start()
+
 
 // async function main() {
 //   const sum = await agent.process({
