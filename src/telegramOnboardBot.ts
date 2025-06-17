@@ -55,6 +55,7 @@ class InfraGuardianTelegramBot extends Agent {
         if (existing) {
             await drizzleDb.update(telegramUsers)
                 .set({
+                    ...existing,
                     step: state.step,
                     method: state.method,
                     aws_account_id: state.aws_account_id,
@@ -81,38 +82,47 @@ class InfraGuardianTelegramBot extends Agent {
     }
 
     private async getHelpText(chatId: number, userState: typeof telegramUsers.$inferSelect | null, invalidCommand = false, errorMessage?: string): Promise<string> {
-        const onboarded = userState?.onboarded ? '✅ Onboarded' : '❌ Not onboarded'
+        console.log(userState)
+        const onboarded = userState?.onboarded ? '✅ Connected & Ready' : '🔌 Not Connected'
         let helpText = ''
         if (invalidCommand && !errorMessage) {
-            helpText += '❌ *Invalid command or input.*\n\n'
+            helpText += '🤔 *I didn\'t quite catch that. Here\'s how I can help you:*\n\n'
         } else if (errorMessage) {
-            helpText += `❌ *${errorMessage}*\n\n`
+            helpText += `❗ *${errorMessage}*\n\n`
         }
-        helpText += `ℹ️ *CloudLens: Monitors your AWS account, gives you comprehensive insights on cost, security, and practical ways of saving costs.*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS infrastructure report\n/lastreport - Get your last report with visualizations\n/help - Show this help message\n\n*Onboarding status:* ${onboarded}`
+        helpText += `🚀 *Welcome to CloudLens - Your AWS Infrastructure Optimization Partner!*\n\n` +
+            `We help you monitor your AWS infrastructure, providing actionable insights on:\n` +
+            `💰 Cost optimization opportunities\n` +
+            `🛡️ Security enhancements\n` +
+            `📊 Resource utilization\n\n` +
+            `Available Commands:\n` +
+            `🔗 /onboard - Connect your AWS account\n` +
+            `📈 /report - Get fresh AWS insights\n` +
+            `📊 /lastreport - View your latest analysis with visualizations\n` +
+            `❓ /help - Show this guide\n\n` +
+            `*AWS Account:* ${onboarded}`;
         return helpText;
     }
 
 
 
-    text = `👋 Welcome to InfraGuardian Onboarding Bot!\n\nYou can onboard your AWS account to InfraGuardianProject in two ways:\n1️⃣ Role-based access (coming soon)\n2️⃣ Provide Read-only AWS credentials\n\nPlease reply with 1 or 2 to choose your onboarding method.`
+    // text = `Ready to unlock powerful cost-saving insights and security recommendations for your AWS infrastructure? Let's get started!\n\nChoose how you'd like to connect:\n1️⃣ Role-based access (coming soon) - The enterprise-grade choice\n2️⃣ Read-only AWS credentials - Quick and secure setup\n\nSimply reply with 1 or 2 to begin your journey to better AWS management! 💫`
+    text = `💰 Want to discover hidden cost savings in your AWS infrastructure?\n🛡️ Looking to enhance your cloud security?\n📊 Need clear insights about your AWS resources?\n\nLet's make it happen! First, choose how to connect:\n\n1️⃣ Role-based access (coming soon)\n   • Enterprise-grade security\n   • Automated credential management\n   • Perfect for organizations\n\n2️⃣ Read-only AWS credentials\n   • Quick 2-minute setup\n   • Secure, read-only access\n   • Instant insights\n\nReply with 1 or 2 to begin optimizing your AWS infrastructure! ✨`
     private setupHandlers() {
-        // /start command
-        this.bot.onText(/\/start/, async (msg: Message) => {
-            const chatId = msg.chat.id
-            await this.setUserState(chatId, { step: 'choose_method' })
-            await this.bot.sendMessage(chatId, this.text)
-        })
+        // // /start command
+        // this.bot.onText(/\/start/, async (msg: Message) => {
+        //     const chatId = msg.chat.id
+        //     await this.setUserState(chatId, { step: 'choose_method' })
+        //     await this.bot.sendMessage(chatId, this.text)
+        // })
 
         // /onboard command
         this.bot.onText(/\/onboard/, async (msg: Message) => {
             const chatId = msg.chat.id
             const state = await this.getUserState(chatId)
-            if (state && state.onboarded) {
-                await this.bot.sendMessage(chatId, `✅ You are already onboarded!\nIf you want to update your AWS account or credentials, just reply with the new value when prompted.`)
-                return
-            }
-            await this.setUserState(chatId, { step: 'choose_method' })
-            await this.bot.sendMessage(chatId, this.text)
+           
+            await this.setUserState(chatId, { step: 'choose_method', onboarded: state?.onboarded })
+            await this.bot.sendMessage(chatId, this.text + `\n\n*AWS Account:* ${state?.onboarded ? '✅ Connected & Ready' : '🔌 Not Connected'}`, { parse_mode: 'Markdown' })
         })
 
         // /report command
@@ -120,15 +130,19 @@ class InfraGuardianTelegramBot extends Agent {
             const chatId = msg.chat.id
             const state = await this.getUserState(chatId)
             if (!state || !state.onboarded) {
-                await this.bot.sendMessage(chatId, '❌ Please onboard first using /onboard.')
+                await this.bot.sendMessage(chatId, '🔒 Looks like your AWS account isn\'t connected yet! Use /onboard to unlock powerful infrastructure insights and cost-saving recommendations.')
                 return
             }
-            await this.bot.sendMessage(chatId, '⏳ Generating AWS cost insights report...')
+            await this.bot.sendMessage(chatId, '🔍 Analyzing your infrastructure... Preparing your personalized report...')
             try {
-                const report = await this.generateCostReport(state)
-                await this.bot.sendMessage(chatId, `📊 AWS Cost Insights Report:\n\n${report}`)
+                const report = await this.getLastReport(state.telegramId)
+                if (!report) {
+                    await this.bot.sendMessage(chatId, '📝 No reports yet! Use /report to generate your first comprehensive AWS infrastructure analysis.')
+                    return
+                }
+                await this.sendReportWithVisualizations(chatId, report)
             } catch (err) {
-                await this.bot.sendMessage(chatId, '❌ Failed to generate report. Please try again.')
+                await this.bot.sendMessage(chatId, '⚠️ Oops! We encountered a hiccup while fetching your report. Let\'s try that again!')
             }
         })
 
@@ -156,7 +170,7 @@ class InfraGuardianTelegramBot extends Agent {
         // /help command
         this.bot.onText(/\/help/, async (msg: Message) => {
             const chatId = msg.chat.id
-            await this.bot.sendMessage(chatId, `ℹ️ *Help*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS cost insights report\n/lastreport - Get your last report with visualizations\n/help - Show this help message`, { parse_mode: 'Markdown' })
+            await this.bot.sendMessage(chatId, `🌟 *Your AWS Infrastructure Command Center*\n\nHere's what you can do:\n\n🚀 /start - Begin your AWS optimization journey\n🔗 /onboard - Connect your AWS account securely\n📊 /report - Get fresh insights about costs & security\n📈 /lastreport - View your latest report with beautiful visualizations\n❓ /help - See all available commands\n\n`, { parse_mode: 'Markdown' })
         })
 
         // Handle onboarding steps and user replies
@@ -164,7 +178,17 @@ class InfraGuardianTelegramBot extends Agent {
             console.log('Message received:', msg)
             const chatId = msg.chat.id
             const text = msg.text?.trim()
-            if (!text || text.startsWith('/')) return // skip commands
+            if (!text || text.startsWith('/')) {
+                if (text !== '/onboard' && text !== '/report' && text !== '/lastreport' && text !== '/help') {
+                    const state = await this.getUserState(chatId)
+
+                    const helpText = await this.getHelpText(chatId, state, true)
+                    await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
+                    return
+                }
+
+                return;
+            }
             const state = await this.getUserState(chatId)
             if (!state) {
                 // send help text
@@ -175,13 +199,11 @@ class InfraGuardianTelegramBot extends Agent {
             // Step: choose onboarding method
             if (state.step === 'choose_method') {
                 if (text === '1') {
-                    await this.bot.sendMessage(chatId, 'Role-based access is coming soon. Please choose option 2 to provide read-only AWS credentials.')
+                    await this.bot.sendMessage(chatId, '🔜 Role-based access is coming soon! For now, choose option 2 to quickly set up with read-only credentials - it\'s just as secure! 🛡️')
                     return
-                    // await this.setUserState(chatId, { ...state, step: 'await_account_id', method: 'role' })
-                    // await this.bot.sendMessage(chatId, `Please provide your AWS Account ID.${state.aws_account_id ? `\n\n(Previously: ${state.aws_account_id})` : ''}\n\nThen, grant cross-account access to this role ARN:\n${CROSS_ACCOUNT_ROLE_ARN}`)
                 } else if (text === '2') {
                     await this.setUserState(chatId, { ...state, step: 'await_access_key', method: 'creds' })
-                    await this.bot.sendMessage(chatId, `Please provide your AWS Access Key ID:${state.aws_access_key_id ? `\n\n(Previously: ${state.aws_access_key_id})` : '\n\n(Like: AKIAZBAHUYFYCFOIQFEJ)'}`)
+                    await this.bot.sendMessage(chatId, `🔑 Let's get you set up! Please provide your AWS Access Key ID:${state.aws_access_key_id ? `\n\n(Previously used: ${state.aws_access_key_id})` : '\n\n(Format example: AKIAZBAHUYFYCFOIQFEJ)'}`)
                 } else {
                     const helpText = await this.getHelpText(chatId, state, true)
                     await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
@@ -196,20 +218,17 @@ class InfraGuardianTelegramBot extends Agent {
                 }
             } else if (state.step === 'await_access_key') {
                 if (/^AKIA[0-9A-Z]{16}$/.test(text)) {
-                    // Remove secret key if access key is changed
-                    await this.setUserState(chatId, { ...state, step: 'await_secret_key', aws_access_key_id: text, aws_secret_access_key: null })
-                    await this.bot.sendMessage(chatId, `Now provide your AWS Secret Access Key:`)
+                    await this.setUserState(chatId, { ...state, step: 'await_secret_key', aws_access_key_id: text, aws_secret_access_key: null, onboarded: false })
+                    await this.bot.sendMessage(chatId, `🎉 Great! Now for the final step - please provide your AWS Secret Access Key.\n\nDon't worry, we'll keep it safe and secure! 🛡️`)
                 } else {
-                    const helpText = await this.getHelpText(chatId, state, true, 'Invalid AWS Access Key ID')
-                    await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
+                    await this.bot.sendMessage(chatId, '🤔 That doesn\'t look like a valid AWS Access Key ID. Need help finding it?', { parse_mode: 'Markdown' })
                 }
             } else if (state.step === 'await_secret_key') {
                 if (/^[0-9a-zA-Z\/+=]{40}$/.test(text)) {
                     await this.setUserState(chatId, { ...state, step: null, method: 'creds', onboarded: true, aws_secret_access_key: text })
-                    await this.bot.sendMessage(chatId, '✅ Onboarding complete with credentials!\nYou can now use /report to get AWS cost insights.')
+                    await this.bot.sendMessage(chatId, '🎉 Fantastic! You\'re all set up and ready to go!\n\n💡 Use /report to get your first AWS infrastructure analysis with cost-saving insights and security recommendations.\n\n🚀 Let\'s optimize your AWS infrastructure together!')
                 } else {
-                    const helpText = await this.getHelpText(chatId, state, true, 'Invalid AWS Secret Access Key')
-                    await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
+                    await this.bot.sendMessage(chatId, '🤔 That doesn\'t look like a valid AWS Secret Access Key. Need help finding it?', { parse_mode: 'Markdown' })
                 }
             } else {
                 // For any other invalid state or input, show help text
@@ -257,7 +276,7 @@ class InfraGuardianTelegramBot extends Agent {
             )
 
         if (pendingReport.length > 0) {
-            return 'A report is already in progress. Please wait for it to finish.'
+            return '🔄 A report is already being generated! I\'ll notify you as soon as it\'s ready. This usually takes just a few minutes.';
         }
 
         try {
@@ -272,18 +291,16 @@ class InfraGuardianTelegramBot extends Agent {
             })
             console.log('Task created:', task)
 
-            // store this
-
             await drizzleDb.insert(awsReports).values({
                 id: task.id.toString(),
                 telegramUserId: state.telegramId,
                 startedAt: new Date(),
                 finishedAt: null
             })
-            return 'Submitted request to create a report. It will be available in a few minutes.'
+            return '🚀 Great! I\'m analyzing your AWS infrastructure now.\n\n⏳ This comprehensive analysis typically takes 3-5 minutes.\n\n💡 I\'ll notify you when your personalized report is ready, complete with cost-saving opportunities and security recommendations!';
         } catch (e: any) {
             console.log('Error creating task:', e)
-            return e.message
+            return '⚠️ Oops! Something went wrong while starting the analysis. Let\'s try again! If the issue persists, make sure your AWS credentials are still valid.';
         }
     }
 
