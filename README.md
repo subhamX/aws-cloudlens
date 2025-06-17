@@ -13,6 +13,7 @@ Monitors your AWS account, gives you comprehensive insights on cost, security, a
 ```
 agent-starter/
 ├── src/              # Source code
+├── web/              # Web Analysis
 ├── drizzle-db/       # Database migrations
 ├── scripts/          # Utility scripts
 ├── index.ts         # Entry point
@@ -34,11 +35,3 @@ agent-starter/
 - Telegram bot support
 - Chart.js for data visualization
 - Built-in tunneling with ngrok
-
-
-gcloud config set compute/region europe-west9y
-
-
-git remote add origin1 git@github.com:subhamX/cloudlens-prod.git
-git branch -M main
-git push -u origin1 main

@@ -1023,10 +1023,7 @@ class InfraGuardianTelegramBot extends Agent {
               
             }
 
-            const reportUrl = `https://aws-cloudlens.vercel.app/analysis/${chatId}`
-            setTimeout(async () => {
-                await this.bot.sendMessage(chatId, `View detailed report on the web 🚀: ${reportUrl}`, { parse_mode: 'Markdown' })
-            }, 5000)
+          
         } catch (error) {
             console.error('Error generating charts:', error)
         }
@@ -1111,6 +1108,11 @@ class InfraGuardianTelegramBot extends Agent {
                     await this.bot.sendMessage(chatId, bucketMessage, { parse_mode: 'Markdown' })
                 }
             }
+
+            const reportUrl = `https://aws-cloudlens.vercel.app/analysis/${report.id}`
+            setTimeout(async () => {
+                await this.bot.sendMessage(chatId, `View detailed report on the web 🚀: ${reportUrl}`, { parse_mode: 'Markdown' })
+            }, 5000)
         } catch (error) {
             console.error('Error sending report with visualizations:', error)
             await this.bot.sendMessage(chatId, '❌ Error formatting report. Here is the raw report:', { parse_mode: 'Markdown' })
