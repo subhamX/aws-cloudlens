@@ -20,7 +20,7 @@ class InfraGuardianTelegramBot extends Agent {
     private workspaceId: number
     private infraGuardianAgentId: number // ID of the InfraGuardian Agent
 
-    constructor() {
+    constructor(port: number) {
         const requiredVars = ['TELEGRAM_BOT_TOKEN', 'OPENSERV_API_KEY_AWS', 'OPENSERV_API_KEY_TELEGRAM', 'WORKSPACE_ID', 'INFRAGUARDIAN_AWS_AGENT_ID']
         const missingVars = requiredVars.filter(varName => !process.env[varName])
         if (missingVars.length > 0) {
@@ -30,7 +30,7 @@ class InfraGuardianTelegramBot extends Agent {
         super({
             systemPrompt: 'You are a helpful assistant for onboarding users to InfraGuardianProject and generating AWS cost insights reports.',
             apiKey: process.env.OPENSERV_API_KEY_TELEGRAM!,
-            port: 3002,
+            port: port,
         })
         this.bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true })
         this.workspaceId = parseInt(process.env.WORKSPACE_ID!)
@@ -86,7 +86,7 @@ class InfraGuardianTelegramBot extends Agent {
         if (invalidCommand) {
             helpText += '❌ *Invalid command or input.*\n\n'
         }
-        helpText += `ℹ️ *AWS Cost Insights*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS cost insights report\n/lastreport - Get your last report with visualizations\n/help - Show this help message\n\n*Onboarding status:* ${onboarded}`
+        helpText += `ℹ️ *CloudLens: Monitors your AWS account, gives you comprehensive insights on cost, security, and practical ways of saving costs.*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS infrastructure report\n/lastreport - Get your last report with visualizations\n/help - Show this help message\n\n*Onboarding status:* ${onboarded}`
         return helpText;
     }
 
@@ -737,9 +737,9 @@ class InfraGuardianTelegramBot extends Agent {
                 await this.bot.sendPhoto(chatId, cfnCategoryBuffer, {
                     caption: '📈 CloudFormation Category-wise Findings (Horizontal Bar View)'
                 })
-                await this.bot.sendPhoto(chatId, costImpactBuffer, {
-                    caption: '💰 CloudFormation Cost Impact Analysis'
-                })
+                // await this.bot.sendPhoto(chatId, costImpactBuffer, {
+                //     caption: '💰 CloudFormation Cost Impact Analysis'
+                // })
 
                 // Send CFN strategic recommendations
                 if (reportData.cfn.strategicRecommendations?.length) {
@@ -1015,9 +1015,9 @@ class InfraGuardianTelegramBot extends Agent {
                 const progressBuffer = progressCanvas.toBuffer('image/png')
 
                 // Send progress chart
-                await this.bot.sendPhoto(chatId, progressBuffer, {
-                    caption: '📊 Overall Improvement Progress'
-                })
+                // await this.bot.sendPhoto(chatId, progressBuffer, {
+                //     caption: '📊 Overall Improvement Progress'
+                // })
             }
 
         } catch (error) {

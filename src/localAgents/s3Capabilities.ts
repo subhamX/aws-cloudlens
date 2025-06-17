@@ -28,7 +28,7 @@ export const addS3Capabilities = (agent: Agent) => {
       const result = await client.send(new ListBucketsCommand({}));
       const buckets = (result.Buckets?.map((b) => b.Name) || []).filter(e => e !== undefined) as string[];
       const filteredBuckets = buckets.filter((b) => b.includes('skyline-subhmx'));
-      console.log('Filtered buckets:', filteredBuckets);
+      // console.log('Filtered buckets:', filteredBuckets);
       console.log(`fetch_s3_buckets done....`)
       return JSON.stringify({ buckets: filteredBuckets });
     },
