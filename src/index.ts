@@ -24,9 +24,10 @@ const telegramBot = new InfraGuardianTelegramBot()
 // Start the agent's HTTP server
 
 
+
+console.log(`Registering...`)
 infraGuardianAwsAgent.start()
 telegramBot.start()
-
 
 // async function main() {
 //   const sum = await agent.process({

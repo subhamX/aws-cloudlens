@@ -3,8 +3,7 @@
 import { Agent } from '@openserv-labs/sdk';
 import addS3Capabilities from './localAgents/s3Capabilities';
 import { addEC2EBSCapabilities } from './localAgents/ec2EbsCapabilities';
-
-
+import addCfnCapabilities from './localAgents/cfnCapabilities';
 
 export class AwsInfraGuardianAgent extends Agent {
   constructor() {
@@ -14,9 +13,8 @@ export class AwsInfraGuardianAgent extends Agent {
       apiKey: process.env.OPENSERV_API_KEY_AWS!,
     });
     addS3Capabilities(this);
-    addEC2EBSCapabilities(this);
-
-    // TODO: for CloudFormation
+    // addEC2EBSCapabilities(this);
+    addCfnCapabilities(this);
   }
 
   //   async analyzeInfra({ accessKeyId, secretAccessKey, region = 'us-east-1' }: {

@@ -2,6 +2,7 @@ import { pgTable, integer, varchar, boolean, timestamp, text, json } from "drizz
 import { ConsolidatedS3ReportSchema } from "../../src/localAgents/s3Types"
 import { z } from "zod"
 import { ConsolidatedEC2ReportSchema } from "../../src/localAgents/ec2EbsTypes"
+import { ConsolidatedCfnReportSchema } from "../../src/localAgents/cfnTypes"
 
 export const telegramUsers = pgTable("telegram_users", {
   telegramId: varchar("telegram_id", { length: 20 }).primaryKey(),
@@ -19,7 +20,8 @@ export const awsReports = pgTable("aws_reports", {
   telegramUserId: varchar({ length: 20 }).references(() => telegramUsers.telegramId),
   report: json("report").$type<{
     s3?: z.infer<typeof ConsolidatedS3ReportSchema>,
-    ec2?: z.infer<typeof ConsolidatedEC2ReportSchema>
+    ec2?: z.infer<typeof ConsolidatedEC2ReportSchema>,
+    cfn?: z.infer<typeof ConsolidatedCfnReportSchema>
   }>(),
   startedAt: timestamp("started_at").defaultNow(),
   finishedAt: timestamp("finished_at"),

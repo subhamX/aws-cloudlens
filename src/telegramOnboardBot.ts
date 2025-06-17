@@ -6,7 +6,7 @@ import axios from 'axios'
 import { z } from 'zod'
 import { drizzleDb } from '../drizzle-db/db'
 import { awsReports, telegramUsers } from '../drizzle-db/schema/main'
-import { eq, isNull, and, isNotNull } from 'drizzle-orm'
+import { eq, isNull, and, isNotNull, desc } from 'drizzle-orm'
 import { createCanvas } from 'canvas'
 import Chart from 'chart.js/auto'
 
@@ -242,12 +242,12 @@ class InfraGuardianTelegramBot extends Agent {
 
         // check if the report is already
         const pendingReport = await drizzleDb.select().from(awsReports)
-        .where(
-            and(
-                eq(awsReports.telegramUserId, state.telegramId.toString()),
-                isNull(awsReports.finishedAt)
+            .where(
+                and(
+                    eq(awsReports.telegramUserId, state.telegramId.toString()),
+                    isNull(awsReports.finishedAt)
+                )
             )
-        )
 
         if (pendingReport.length > 0) {
             return 'A report is already in progress. Please wait for it to finish.'
@@ -257,7 +257,7 @@ class InfraGuardianTelegramBot extends Agent {
             const task = await this.createTask({
                 workspaceId: this.workspaceId,
                 assignee: this.infraGuardianAgentId,
-                description: 'Generate AWS cost insights report',
+                description: 'Generate detailed infrastruture report',
                 body: 'Analyze AWS account and generate a cost insights report.',
                 input: JSON.stringify(input),
                 expectedOutput: 'A detailed structured infrastructure report of S3, Ec2, and CloudFormation',
@@ -360,7 +360,7 @@ class InfraGuardianTelegramBot extends Agent {
                     isNotNull(awsReports.finishedAt)
                 )
             )
-            .orderBy(awsReports.startedAt)
+            .orderBy(desc(awsReports.startedAt))
             .limit(1)
 
         if (reports.length === 0) return null
@@ -376,7 +376,7 @@ class InfraGuardianTelegramBot extends Agent {
                     isNotNull(awsReports.finishedAt)
                 )
             )
-            .orderBy(awsReports.startedAt)
+            .orderBy(desc(awsReports.startedAt))
             .limit(limit)
 
         return reports
@@ -385,171 +385,383 @@ class InfraGuardianTelegramBot extends Agent {
     // Generate and send charts for the report
     private async generateAndSendCharts(chatId: number, reportData: typeof awsReports.$inferSelect['report'], telegramId: string) {
         try {
-            if (!reportData?.s3?.overallStatistics) return
+            console.log('Generating and sending charts...', Object.keys(reportData || {}))
 
-            const stats = reportData.s3.overallStatistics
+            // S3 Visualizations
+            if (reportData?.s3?.overallStatistics) {
+                const stats = reportData.s3.overallStatistics
 
-            // Create canvas for priority chart - Using Doughnut with center text
-            const priorityCanvas = createCanvas(800, 400)
-            const priorityCtx = priorityCanvas.getContext('2d')
-
-            // Priority chart
-            new Chart(priorityCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Critical', 'High', 'Medium', 'Low'],
-                    datasets: [{
-                        data: [
-                            stats.findingsByPriority?.critical || 0,
-                            stats.findingsByPriority?.high || 0,
-                            stats.findingsByPriority?.medium || 0,
-                            stats.findingsByPriority?.low || 0
-                        ],
-                        backgroundColor: [
-                            '#dc3545', // Critical - Red
-                            '#fd7e14', // High - Orange
-                            '#ffc107', // Medium - Yellow
-                            '#20c997'  // Low - Teal
-                        ],
-                        borderWidth: 2,
-                        borderColor: '#ffffff'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    cutout: '60%',
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: 'Findings by Priority',
-                            font: {
-                                size: 20,
-                                weight: 'bold'
-                            },
-                            padding: 20
-                        },
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                padding: 20,
-                                font: {
-                                    size: 14
-                                }
-                            }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    const data = context.dataset.data as number[];
-                                    const total = data.reduce((sum, val) => sum + (val || 0), 0);
-                                    const value = context.raw as number;
-                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
-                                    return `${value} findings (${percentage}%)`;
-                                }
-                            }
-                        }
-                    }
+                // Send executive summary for S3
+                if (reportData.s3.executiveSummary) {
+                    await this.bot.sendMessage(chatId, `📊 *S3 Executive Summary*\n\n${reportData.s3.executiveSummary}`, { parse_mode: 'Markdown' })
                 }
-            })
 
-            // Create canvas for category chart - Using Bar chart with horizontal layout
-            const categoryCanvas = createCanvas(800, 400)
-            const categoryCtx = categoryCanvas.getContext('2d')
+                // Create canvas for priority chart - Using Doughnut with center text
+                const priorityCanvas = createCanvas(800, 400)
+                const priorityCtx = priorityCanvas.getContext('2d')
 
-            // Category chart
-            new Chart(categoryCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['Security', 'Cost', 'Storage', 'Performance', 'Other'],
-                    datasets: [{
-                        label: 'Number of Findings',
-                        data: [
-                            stats.findingsByCategory?.security || 0,
-                            stats.findingsByCategory?.cost || 0,
-                            stats.findingsByCategory?.storage || 0,
-                            stats.findingsByCategory?.performance || 0,
-                            stats.findingsByCategory?.other || 0
-                        ],
-                        backgroundColor: [
-                            '#0d6efd', // Security - Blue
-                            '#198754', // Cost - Green
-                            '#6f42c1', // Storage - Purple
-                            '#0dcaf0', // Performance - Cyan
-                            '#6c757d'  // Other - Gray
-                        ],
-                        borderWidth: 1,
-                        borderColor: '#ffffff',
-                        borderRadius: 5
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: 'Findings by Category',
-                            font: {
-                                size: 20,
-                                weight: 'bold'
-                            },
-                            padding: 20
-                        },
-                        legend: {
-                            display: false
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    const data = context.dataset.data as number[];
-                                    const total = data.reduce((sum, val) => sum + (val || 0), 0);
-                                    const value = context.raw as number;
-                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
-                                    return `${value} findings (${percentage}%)`;
-                                }
-                            }
-                        }
+                // Priority chart
+                new Chart(priorityCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Critical', 'High', 'Medium', 'Low'],
+                        datasets: [{
+                            data: [
+                                stats.findingsByPriority?.critical || 0,
+                                stats.findingsByPriority?.high || 0,
+                                stats.findingsByPriority?.medium || 0,
+                                stats.findingsByPriority?.low || 0
+                            ],
+                            backgroundColor: [
+                                '#dc3545', // Critical - Red
+                                '#fd7e14', // High - Orange
+                                '#ffc107', // Medium - Yellow
+                                '#20c997'  // Low - Teal
+                            ],
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
+                        }]
                     },
-                    scales: {
-                        x: {
-                            beginAtZero: true,
+                    options: {
+                        responsive: true,
+                        cutout: '60%',
+                        plugins: {
                             title: {
                                 display: true,
-                                text: 'Number of Findings',
+                                text: 'S3 Findings by Priority',
                                 font: {
-                                    size: 14,
+                                    size: 20,
                                     weight: 'bold'
+                                },
+                                padding: 20
+                            },
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 20,
+                                    font: {
+                                        size: 14
+                                    }
                                 }
                             },
-                            grid: {
-                                display: true,
-                                color: 'rgba(0, 0, 0, 0.1)'
-                            }
-                        },
-                        y: {
-                            grid: {
-                                display: false
+                            tooltip: {
+                                callbacks: {
+                                    label: function (context) {
+                                        const data = context.dataset.data as number[];
+                                        const total = data.reduce((sum, val) => sum + (val || 0), 0);
+                                        const value = context.raw as number;
+                                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                        return `${value} findings (${percentage}%)`;
+                                    }
+                                }
                             }
                         }
                     }
+                })
+
+                // Create canvas for category chart - Using Bar chart with horizontal layout
+                const categoryCanvas = createCanvas(800, 400)
+                const categoryCtx = categoryCanvas.getContext('2d')
+
+                // Category chart
+                new Chart(categoryCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Security', 'Cost', 'Storage', 'Performance', 'Other'],
+                        datasets: [{
+                            label: 'Number of Findings',
+                            data: [
+                                stats.findingsByCategory?.security || 0,
+                                stats.findingsByCategory?.cost || 0,
+                                stats.findingsByCategory?.storage || 0,
+                                stats.findingsByCategory?.performance || 0,
+                                stats.findingsByCategory?.other || 0
+                            ],
+                            backgroundColor: [
+                                '#0d6efd', // Security - Blue
+                                '#198754', // Cost - Green
+                                '#6f42c1', // Storage - Purple
+                                '#0dcaf0', // Performance - Cyan
+                                '#6c757d'  // Other - Gray
+                            ],
+                            borderWidth: 1,
+                            borderColor: '#ffffff',
+                            borderRadius: 5
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'S3 Findings by Category',
+                                font: {
+                                    size: 20,
+                                    weight: 'bold'
+                                },
+                                padding: 20
+                            },
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function (context) {
+                                        const data = context.dataset.data as number[];
+                                        const total = data.reduce((sum, val) => sum + (val || 0), 0);
+                                        const value = context.raw as number;
+                                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                        return `${value} findings (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Findings',
+                                    font: {
+                                        size: 14,
+                                        weight: 'bold'
+                                    }
+                                },
+                                grid: {
+                                    display: true,
+                                    color: 'rgba(0, 0, 0, 0.1)'
+                                }
+                            },
+                            y: {
+                                grid: {
+                                    display: false
+                                }
+                            }
+                        }
+                    }
+                })
+
+                // Convert canvases to buffers
+                const priorityBuffer = priorityCanvas.toBuffer('image/png')
+                const categoryBuffer = categoryCanvas.toBuffer('image/png')
+
+                // Send S3 charts
+                await this.bot.sendPhoto(chatId, priorityBuffer, {
+                    caption: '🎯 S3 Priority Distribution (Doughnut View)'
+                })
+                await this.bot.sendPhoto(chatId, categoryBuffer, {
+                    caption: '📈 S3 Category-wise Findings (Horizontal Bar View)'
+                })
+
+                // Send S3 strategic recommendations
+                if (reportData.s3.strategicRecommendations?.length) {
+                    let recommendationsMessage = `🎯 *S3 Strategic Recommendations*\n\n`
+                    reportData.s3.strategicRecommendations.forEach((rec: any, index: number) => {
+                        recommendationsMessage += `${index + 1}. *${rec.title}*\n` +
+                            `${rec.description}\n` +
+                            `Impact: ${rec.potentialImpact}\n`
+                        if (rec.suggestedActions?.length > 0) {
+                            recommendationsMessage += `Suggested Actions:\n${rec.suggestedActions.map((action: string) => `• ${action}`).join('\n')}\n`
+                        }
+                        recommendationsMessage += '\n'
+                    })
+                    await this.bot.sendMessage(chatId, recommendationsMessage, { parse_mode: 'Markdown' })
                 }
-            })
+            }
 
-            // Convert canvases to buffers
-            const priorityBuffer = priorityCanvas.toBuffer('image/png')
-            const categoryBuffer = categoryCanvas.toBuffer('image/png')
+            // CloudFormation Visualizations
+            if (reportData?.cfn?.overallStatistics) {
+                const stats = reportData.cfn.overallStatistics
 
-            // Send charts
-            await this.bot.sendPhoto(chatId, priorityBuffer, {
-                caption: '🎯 Priority Distribution (Doughnut View)'
-            })
-            await this.bot.sendPhoto(chatId, categoryBuffer, {
-                caption: '📈 Category-wise Findings (Horizontal Bar View)'
-            })
+                // Send executive summary for CFN
+                if (reportData.cfn.executiveSummary) {
+                    await this.bot.sendMessage(chatId, `📊 *CloudFormation Executive Summary*\n\n${reportData.cfn.executiveSummary}`, { parse_mode: 'Markdown' })
+                }
 
-            // Get last 3 reports for trend analysis
-            const lastReports = await this.getLastReports(telegramId)
+                // Create canvas for CFN priority chart
+                const cfnPriorityCanvas = createCanvas(800, 400)
+                const cfnPriorityCtx = cfnPriorityCanvas.getContext('2d')
+
+                // CFN Priority chart
+                new Chart(cfnPriorityCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Critical', 'High', 'Medium', 'Low'],
+                        datasets: [{
+                            data: [
+                                stats.findingsByPriority?.critical || 0,
+                                stats.findingsByPriority?.high || 0,
+                                stats.findingsByPriority?.medium || 0,
+                                stats.findingsByPriority?.low || 0
+                            ],
+                            backgroundColor: [
+                                '#dc3545', // Critical - Red
+                                '#fd7e14', // High - Orange
+                                '#ffc107', // Medium - Yellow
+                                '#20c997'  // Low - Teal
+                            ],
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        cutout: '60%',
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'CloudFormation Findings by Priority',
+                                font: {
+                                    size: 20,
+                                    weight: 'bold'
+                                },
+                                padding: 20
+                            },
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 20,
+                                    font: {
+                                        size: 14
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function (context) {
+                                        const data = context.dataset.data as number[];
+                                        const total = data.reduce((sum, val) => sum + (val || 0), 0);
+                                        const value = context.raw as number;
+                                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                        return `${value} findings (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+
+                // Create canvas for CFN category chart
+                const cfnCategoryCanvas = createCanvas(800, 400)
+                const cfnCategoryCtx = cfnCategoryCanvas.getContext('2d')
+
+                // CFN Category chart
+                new Chart(cfnCategoryCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Template', 'Security', 'Cost'],
+                        datasets: [{
+                            label: 'Number of Findings',
+                            data: [
+                                stats.findingsByCategory?.template || 0,
+                                stats.findingsByCategory?.security || 0,
+                                stats.findingsByCategory?.cost || 0
+                            ],
+                            backgroundColor: [
+                                '#0d6efd', // Template - Blue
+                                '#dc3545', // Security - Red
+                                '#198754'  // Cost - Green
+                            ],
+                            borderWidth: 1,
+                            borderColor: '#ffffff',
+                            borderRadius: 5
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'CloudFormation Findings by Category',
+                                font: {
+                                    size: 20,
+                                    weight: 'bold'
+                                },
+                                padding: 20
+                            },
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function (context) {
+                                        const data = context.dataset.data as number[];
+                                        const total = data.reduce((sum, val) => sum + (val || 0), 0);
+                                        const value = context.raw as number;
+                                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                        return `${value} findings (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Findings',
+                                    font: {
+                                        size: 14,
+                                        weight: 'bold'
+                                    }
+                                },
+                                grid: {
+                                    display: true,
+                                    color: 'rgba(0, 0, 0, 0.1)'
+                                }
+                            },
+                            y: {
+                                grid: {
+                                    display: false
+                                }
+                            }
+                        }
+                    }
+                })
+
+                // Create canvas for cost impact chart
+                const costImpactCanvas = createCanvas(800, 400)
+                const costImpactCtx = costImpactCanvas.getContext('2d')
+
+                // Convert CFN canvases to buffers
+                const cfnPriorityBuffer = cfnPriorityCanvas.toBuffer('image/png')
+                const cfnCategoryBuffer = cfnCategoryCanvas.toBuffer('image/png')
+                const costImpactBuffer = costImpactCanvas.toBuffer('image/png')
+
+                // Send CFN charts
+                await this.bot.sendPhoto(chatId, cfnPriorityBuffer, {
+                    caption: '🎯 CloudFormation Priority Distribution (Doughnut View)'
+                })
+                await this.bot.sendPhoto(chatId, cfnCategoryBuffer, {
+                    caption: '📈 CloudFormation Category-wise Findings (Horizontal Bar View)'
+                })
+                await this.bot.sendPhoto(chatId, costImpactBuffer, {
+                    caption: '💰 CloudFormation Cost Impact Analysis'
+                })
+
+                // Send CFN strategic recommendations
+                if (reportData.cfn.strategicRecommendations?.length) {
+                    let recommendationsMessage = `🎯 *CloudFormation Strategic Recommendations*\n\n`
+                    reportData.cfn.strategicRecommendations.forEach((rec: any, index: number) => {
+                        recommendationsMessage += `${index + 1}. *${rec.title}*\n` +
+                            `${rec.description}\n` +
+                            `Impact: ${rec.potentialImpact}\n`
+                        if (rec.suggestedActions?.length > 0) {
+                            recommendationsMessage += `Suggested Actions:\n${rec.suggestedActions.map((action: string) => `• ${action}`).join('\n')}\n`
+                        }
+                        recommendationsMessage += '\n'
+                    })
+                    await this.bot.sendMessage(chatId, recommendationsMessage, { parse_mode: 'Markdown' })
+                }
+            }
+
+            // Trend Analysis (Combined for all services)
+            const lastReports = await this.getLastReports(telegramId, 3)
             if (lastReports.length > 1) {
+                await this.bot.sendMessage(chatId, '📈 *Trend Analysis (Last 3 Reports)*', { parse_mode: 'Markdown' })
+
                 // Create canvas for trend chart
                 const trendCanvas = createCanvas(1000, 500)
                 const trendCtx = trendCanvas.getContext('2d')
@@ -559,41 +771,48 @@ class InfraGuardianTelegramBot extends Agent {
                     const data = report.report
                     return {
                         date: new Date(report.startedAt || new Date()).toLocaleDateString(),
-                        critical: data?.s3?.overallStatistics?.findingsByPriority?.critical || 0,
-                        high: data?.s3?.overallStatistics?.findingsByPriority?.high || 0,
-                        medium: data?.s3?.overallStatistics?.findingsByPriority?.medium || 0,
-                        low: data?.s3?.overallStatistics?.findingsByPriority?.low || 0,
-                        total: data?.s3?.overallStatistics?.totalRecommendationsMade || 0
+                        s3: {
+                            critical: data?.s3?.overallStatistics?.findingsByPriority?.critical || 0,
+                            high: data?.s3?.overallStatistics?.findingsByPriority?.high || 0,
+                            medium: data?.s3?.overallStatistics?.findingsByPriority?.medium || 0,
+                            low: data?.s3?.overallStatistics?.findingsByPriority?.low || 0,
+                        },
+                        cfn: {
+                            critical: data?.cfn?.overallStatistics?.findingsByPriority?.critical || 0,
+                            high: data?.cfn?.overallStatistics?.findingsByPriority?.high || 0,
+                            medium: data?.cfn?.overallStatistics?.findingsByPriority?.medium || 0,
+                            low: data?.cfn?.overallStatistics?.findingsByPriority?.low || 0,
+                        }
                     }
                 })
 
-                // Trend chart
+                // Trend chart for S3
                 new Chart(trendCtx, {
                     type: 'line',
                     data: {
                         labels: trendData.map(d => d.date),
                         datasets: [
                             {
-                                label: 'Critical',
-                                data: trendData.map(d => d.critical),
+                                label: 'S3 Critical',
+                                data: trendData.map(d => d.s3.critical),
                                 borderColor: '#dc3545',
                                 tension: 0.1
                             },
                             {
-                                label: 'High',
-                                data: trendData.map(d => d.high),
+                                label: 'S3 High',
+                                data: trendData.map(d => d.s3.high),
                                 borderColor: '#fd7e14',
                                 tension: 0.1
                             },
                             {
-                                label: 'Medium',
-                                data: trendData.map(d => d.medium),
+                                label: 'S3 Medium',
+                                data: trendData.map(d => d.s3.medium),
                                 borderColor: '#ffc107',
                                 tension: 0.1
                             },
                             {
-                                label: 'Low',
-                                data: trendData.map(d => d.low),
+                                label: 'S3 Low',
+                                data: trendData.map(d => d.s3.low),
                                 borderColor: '#20c997',
                                 tension: 0.1
                             }
@@ -604,7 +823,7 @@ class InfraGuardianTelegramBot extends Agent {
                         plugins: {
                             title: {
                                 display: true,
-                                text: 'Findings Trend Analysis',
+                                text: 'S3 Findings Trend Analysis',
                                 font: {
                                     size: 20
                                 }
@@ -631,38 +850,138 @@ class InfraGuardianTelegramBot extends Agent {
                     }
                 })
 
+                // Convert trend canvas to buffer
+                const trendBuffer = trendCanvas.toBuffer('image/png')
+
+                // Send trend chart
+                await this.bot.sendPhoto(chatId, trendBuffer, {
+                    caption: '📈 S3 Findings Trend Analysis'
+                })
+
+                // Create canvas for CFN trend chart
+                const cfnTrendCanvas = createCanvas(1000, 500)
+                const cfnTrendCtx = cfnTrendCanvas.getContext('2d')
+
+                // CFN Trend chart
+                new Chart(cfnTrendCtx, {
+                    type: 'line',
+                    data: {
+                        labels: trendData.map(d => d.date),
+                        datasets: [
+                            {
+                                label: 'CFN Critical',
+                                data: trendData.map(d => d.cfn.critical),
+                                borderColor: '#dc3545',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'CFN High',
+                                data: trendData.map(d => d.cfn.high),
+                                borderColor: '#fd7e14',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'CFN Medium',
+                                data: trendData.map(d => d.cfn.medium),
+                                borderColor: '#ffc107',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'CFN Low',
+                                data: trendData.map(d => d.cfn.low),
+                                borderColor: '#20c997',
+                                tension: 0.1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'CloudFormation Findings Trend Analysis',
+                                font: {
+                                    size: 20
+                                }
+                            },
+                            legend: {
+                                position: 'bottom'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Findings'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Report Date'
+                                }
+                            }
+                        }
+                    }
+                })
+
+                // Convert CFN trend canvas to buffer
+                const cfnTrendBuffer = cfnTrendCanvas.toBuffer('image/png')
+
+                // Send CFN trend chart
+                await this.bot.sendPhoto(chatId, cfnTrendBuffer, {
+                    caption: '📈 CloudFormation Findings Trend Analysis'
+                })
+
                 // Create canvas for progress chart
                 const progressCanvas = createCanvas(800, 400)
                 const progressCtx = progressCanvas.getContext('2d')
 
-                // Calculate progress
+                // Calculate progress for both services
                 const firstReport = trendData[0]
                 const latestReport = trendData[trendData.length - 1]
                 const progress = {
-                    critical: ((firstReport.critical - latestReport.critical) / firstReport.critical * 100).toFixed(1),
-                    high: ((firstReport.high - latestReport.high) / firstReport.high * 100).toFixed(1),
-                    medium: ((firstReport.medium - latestReport.medium) / firstReport.medium * 100).toFixed(1),
-                    low: ((firstReport.low - latestReport.low) / firstReport.low * 100).toFixed(1)
+                    s3: {
+                        critical: ((firstReport.s3.critical - latestReport.s3.critical) / firstReport.s3.critical * 100).toFixed(1),
+                        high: ((firstReport.s3.high - latestReport.s3.high) / firstReport.s3.high * 100).toFixed(1),
+                        medium: ((firstReport.s3.medium - latestReport.s3.medium) / firstReport.s3.medium * 100).toFixed(1),
+                        low: ((firstReport.s3.low - latestReport.s3.low) / firstReport.s3.low * 100).toFixed(1)
+                    },
+                    cfn: {
+                        critical: ((firstReport.cfn.critical - latestReport.cfn.critical) / firstReport.cfn.critical * 100).toFixed(1),
+                        high: ((firstReport.cfn.high - latestReport.cfn.high) / firstReport.cfn.high * 100).toFixed(1),
+                        medium: ((firstReport.cfn.medium - latestReport.cfn.medium) / firstReport.cfn.medium * 100).toFixed(1),
+                        low: ((firstReport.cfn.low - latestReport.cfn.low) / firstReport.cfn.low * 100).toFixed(1)
+                    }
                 }
 
                 // Progress chart
                 new Chart(progressCtx, {
                     type: 'bar',
                     data: {
-                        labels: ['Critical', 'High', 'Medium', 'Low'],
+                        labels: ['S3 Critical', 'S3 High', 'S3 Medium', 'S3 Low', 'CFN Critical', 'CFN High', 'CFN Medium', 'CFN Low'],
                         datasets: [{
                             label: 'Improvement %',
                             data: [
-                                parseFloat(progress.critical),
-                                parseFloat(progress.high),
-                                parseFloat(progress.medium),
-                                parseFloat(progress.low)
+                                parseFloat(progress.s3.critical),
+                                parseFloat(progress.s3.high),
+                                parseFloat(progress.s3.medium),
+                                parseFloat(progress.s3.low),
+                                parseFloat(progress.cfn.critical),
+                                parseFloat(progress.cfn.high),
+                                parseFloat(progress.cfn.medium),
+                                parseFloat(progress.cfn.low)
                             ],
                             backgroundColor: [
-                                '#dc3545',
-                                '#fd7e14',
-                                '#ffc107',
-                                '#20c997'
+                                '#dc3545', // Critical - Red
+                                '#fd7e14', // High - Orange
+                                '#ffc107', // Medium - Yellow
+                                '#20c997', // Low - Teal
+                                '#dc3545', // Critical - Red
+                                '#fd7e14', // High - Orange
+                                '#ffc107', // Medium - Yellow
+                                '#20c997'  // Low - Teal
                             ]
                         }]
                     },
@@ -692,16 +1011,12 @@ class InfraGuardianTelegramBot extends Agent {
                     }
                 })
 
-                // Convert trend and progress canvases to buffers
-                const trendBuffer = trendCanvas.toBuffer('image/png')
+                // Convert progress canvas to buffer
                 const progressBuffer = progressCanvas.toBuffer('image/png')
 
-                // Send trend and progress charts
-                await this.bot.sendPhoto(chatId, trendBuffer, {
-                    caption: '📈 Findings Trend Analysis (Last 3 Reports)'
-                })
+                // Send progress chart
                 await this.bot.sendPhoto(chatId, progressBuffer, {
-                    caption: '📊 Improvement Progress'
+                    caption: '📊 Overall Improvement Progress'
                 })
             }
 
@@ -715,15 +1030,11 @@ class InfraGuardianTelegramBot extends Agent {
         try {
             const reportData = report.report
 
-            if(!reportData) {
+            if (!reportData) {
                 await this.bot.sendMessage(chatId, '❌ No report data found.')
                 return
             }
-            
-            // Send executive summary
-            if (reportData.s3?.executiveSummary) {
-                await this.bot.sendMessage(chatId, `📊 *Executive Summary*\n\n${reportData.s3.executiveSummary}`, { parse_mode: 'Markdown' })
-            }
+
 
             // Generate and send charts
             await this.generateAndSendCharts(chatId, reportData, report.telegramUserId || '')
@@ -744,12 +1055,12 @@ class InfraGuardianTelegramBot extends Agent {
                     `• Storage: ${stats.findingsByCategory?.storage || 0}\n` +
                     `• Performance: ${stats.findingsByCategory?.performance || 0}\n` +
                     `• Other: ${stats.findingsByCategory?.other || 0}`
-                
+
                 await this.bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' })
             }
 
             // Send strategic recommendations
-            if (reportData.s3?.strategicRecommendations?.length > 0) {
+            if (reportData.s3?.strategicRecommendations?.length && reportData.s3.strategicRecommendations.length > 0) {
                 const recommendations = reportData.s3.strategicRecommendations
                 let recommendationsMessage = `🎯 *Strategic Recommendations*\n\n`
                 recommendations.forEach((rec: any, index: number) => {
@@ -765,7 +1076,7 @@ class InfraGuardianTelegramBot extends Agent {
             }
 
             // Send detailed bucket analyses
-            if (reportData.s3?.detailedBucketAnalyses?.length > 0) {
+            if (reportData.s3?.detailedBucketAnalyses?.length && reportData.s3.detailedBucketAnalyses.length > 0) {
                 const analyses = reportData.s3.detailedBucketAnalyses
                 for (const analysis of analyses) {
 
@@ -777,7 +1088,7 @@ class InfraGuardianTelegramBot extends Agent {
                         `• Medium: ${analysis.summary.findingsByPriority?.medium || 0}\n` +
                         `• Low: ${analysis.summary.findingsByPriority?.low || 0}\n\n` +
                         `*Key Recommendations:*\n`
-                    
+
                     // Add top 3 recommendations
                     const topRecommendations = analysis.recommendations
                         .sort((a, b) => {
@@ -785,11 +1096,11 @@ class InfraGuardianTelegramBot extends Agent {
                             return priorityOrder[a.impact] - priorityOrder[b.impact]
                         })
                         .slice(0, 3)
-                    
+
                     topRecommendations.forEach((rec) => {
                         bucketMessage += `• *${rec.category}* (${rec.impact}): ${rec.description}\n`
                     })
-                    
+
                     await this.bot.sendMessage(chatId, bucketMessage, { parse_mode: 'Markdown' })
                 }
             }
