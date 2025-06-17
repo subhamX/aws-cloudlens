@@ -16,100 +16,11 @@ import {
   GetPublicAccessBlockCommand,
   GetBucketTaggingCommand,
 } from '@aws-sdk/client-s3';
-import {
-  EC2Client,
-  DescribeInstancesCommand,
-} from '@aws-sdk/client-ec2';
-import {
-  CloudFormationClient,
-  ListStacksCommand,
-} from '@aws-sdk/client-cloudformation';
 import { Agent } from '@openserv-labs/sdk';
-import CfnReportLocalAgent from './localAgents/cfnReportAgent';
-import S3ReportAgent from './localAgents/s3ReportAgent';
-import Ec2ReportAgent from './localAgents/ec2ReportAgent';
 import { drizzleDb } from '../drizzle-db/db';
 import { awsReports, stagingData } from '../drizzle-db/schema';
 import { eq } from 'drizzle-orm';
-
-// Schema for individual recommendations
-const RecommendationCategorySchema = z.enum(['Storage', 'Security', 'Cost', 'Performance', 'Other']);
-const RecommendationSchema = z.object({
-  category: RecommendationCategorySchema.describe('Category of the recommendation'),
-  subcategory: z.string().describe('Specific subcategory (e.g., Storage Class, Lifecycle, Access Control)'),
-  description: z.string().describe('Description of the issue or optimization point'),
-  impact: z.enum(['Critical', 'High', 'Medium', 'Low']).describe('Impact and priority of the finding'),
-  affectedPrefixes: z.array(z.string()).optional().describe('List of affected S3 prefixes/objects, if applicable'),
-  recommendation: z.string().describe('Specific actionable recommendation'),
-  currentCostImpact: z.string().optional().describe('Qualitative assessment of current cost related to this finding (e.g., "High", "Standard storage costs for 1TB")'),
-  estimatedSavingsImpact: z.string().optional().describe('Qualitative assessment of potential savings (e.g., "Significant", "$X/month estimate requires user data", "up to Y% reduction")'),
-  objectCount: z.number().optional().describe('Number of objects related to this finding from the provided list or context'),
-  totalSize: z.string().optional().describe('Total size of objects related to this finding (e.g., "10 GB", or "User to determine based on full scan")'),
-  remediationSteps: z.string().optional().describe('Steps to remediate (especially for security findings)'),
-  complianceImpact: z.string().optional().describe('Potential compliance impact (especially for security findings)'),
-});
-
-// Schema for the comprehensive S3 bucket analysis
-const S3BucketAnalysisSchema = z.object({
-  bucketName: z.string().describe('Name of the S3 bucket'),
-  analysisDate: z.string().describe('Date of the analysis (ISO 8601 format: YYYY-MM-DD)'),
-  statistics: z.object({
-    totalObjectsProvidedForAnalysis: z.number().optional().describe('Total number of objects provided in the input list for analysis'),
-    totalSizeNote: z.string().default('Actual total size of all objects in the bucket needs to be determined by the user. Analysis is based on provided object list and configurations.').describe('Note about total size determination'),
-    estimatedMonthlyCostNote: z.string().default('A precise overall monthly cost estimate requires full bucket metrics. This analysis focuses on qualitative cost implications and potential savings from specific recommendations.').describe('Note about overall estimated monthly cost determination'),
-  }).describe('Overall statistics based on provided information for the bucket'),
-  recommendations: z.array(RecommendationSchema).describe('List of detailed recommendations'),
-  summary: z.object({
-    overallAssessment: z.string().describe('A brief overall assessment of the bucket\'s configuration.'),
-    totalPotentialSavingsNote: z.string().default('Sum of qualitative or quantitative savings mentioned in recommendations. Precise total savings require deeper analysis and implementation.').describe('Note about total potential savings'),
-    findingsByPriority: z.object({
-      critical: z.number().default(0),
-      high: z.number().default(0),
-      medium: z.number().default(0),
-      low: z.number().default(0),
-    }).describe('Count of findings by priority, derived from recommendations array.'),
-    findingsByCategory: z.object({
-      security: z.number().default(0),
-      cost: z.number().default(0),
-      storage: z.number().default(0),
-      performance: z.number().default(0),
-      other: z.number().default(0),
-    }).describe('Count of findings by category, derived from recommendations array.'),
-    securityVulnerabilitiesCount: z.number().default(0).describe('Number of security vulnerabilities identified (should match findingsByCategory.security).'),
-    costOptimizationOpportunitiesCount: z.number().default(0).describe('Number of cost optimization opportunities (should match findingsByCategory.cost).'),
-  }).describe('Summary of the analysis findings'),
-});
-
-// Schema for the consolidated S3 report (NEW)
-const ConsolidatedS3ReportSchema = z.object({
-  reportDate: z.string().describe('Date the consolidated report was generated (YYYY-MM-DD)'),
-  executiveSummary: z.string().describe('High-level overview of the S3 infrastructure health and key findings.'),
-  overallStatistics: z.object({
-    totalBucketsAnalyzed: z.number().describe('Total number of S3 buckets included in this report.'),
-    totalRecommendationsMade: z.number().describe('Total number of recommendations across all analyzed buckets.'),
-    findingsByPriority: z.object({
-      critical: z.number().default(0),
-      high: z.number().default(0),
-      medium: z.number().default(0),
-      low: z.number().default(0),
-    }).describe('Aggregated count of findings by priority across all buckets.'),
-    findingsByCategory: z.object({
-      security: z.number().default(0),
-      cost: z.number().default(0),
-      storage: z.number().default(0),
-      performance: z.number().default(0),
-      other: z.number().default(0),
-    }).describe('Aggregated count of findings by category across all buckets. Useful for pie charts.'),
-    bucketsWithCriticalOrHighFindings: z.number().default(0).describe('Number of buckets with at least one critical or high priority finding.'),
-  }).describe('Aggregated statistics for the analyzed S3 infrastructure.'),
-  detailedBucketAnalyses: z.array(S3BucketAnalysisSchema).describe('Array of individual S3 bucket analysis results.'),
-  strategicRecommendations: z.array(z.object({
-    title: z.string().describe('Title of the strategic recommendation.'),
-    description: z.string().describe('Detailed description of the strategic recommendation and its rationale.'),
-    potentialImpact: z.string().describe('Potential impact of implementing this strategic recommendation (e.g., Improved Security Posture, Significant Cost Reduction).'),
-    suggestedActions: z.array(z.string()).optional().describe('Specific actions to take for this strategic recommendation.'),
-  })).describe('High-level strategic recommendations for improving the overall S3 environment.'),
-});
+import { ConsolidatedS3ReportSchema, S3BucketAnalysisSchema } from './s3Types'
 
 
 export class AwsInfraGuardianAgent extends Agent {
@@ -186,7 +97,7 @@ export class AwsInfraGuardianAgent extends Agent {
         console.log(`analyze_s3_bucket starting....`)
         const { bucketName, infoOnObjectsInThisBucketKey, accessKeyId, secretAccessKey, region = 'us-east-1' } = params.args;
         const stagingDataRow = await drizzleDb.select().from(stagingData).where(eq(stagingData.id, infoOnObjectsInThisBucketKey));
-        if(stagingDataRow.length === 0) {
+        if (stagingDataRow.length === 0) {
           throw new Error('Staging data row not found');
         }
         const data = JSON.parse(stagingDataRow[0].data || '{}');
@@ -196,7 +107,7 @@ export class AwsInfraGuardianAgent extends Agent {
 
         let policyStatus, aclDetails, versioningStatus, loggingStatus, lifecycleStatus, encryptionStatus, publicAccessBlockStatus, tagsStatus;
 
-        try { 
+        try {
           const policy = await s3Client.send(new GetBucketPolicyCommand({ Bucket: bucketName }));
           policyStatus = policy.Policy ? 'Configured (Details not passed to LLM)' : 'Configured but empty';
         } catch (e: any) { policyStatus = e.name === 'NoSuchBucketPolicy' ? 'Not configured' : `Error fetching policy: ${e.name}`; }
@@ -211,7 +122,7 @@ export class AwsInfraGuardianAgent extends Agent {
           versioningStatus = versioning.Status ? versioning.Status : 'Not explicitly configured';
           if (versioning.MFADelete === 'Enabled') versioningStatus += ' (MFA Delete Enabled)';
         } catch (e: any) { versioningStatus = `Error fetching versioning: ${e.name}`; }
-        
+
         try {
           const logging = await s3Client.send(new GetBucketLoggingCommand({ Bucket: bucketName }));
           loggingStatus = logging.LoggingEnabled ? `Enabled to ${logging.LoggingEnabled.TargetBucket}/${logging.LoggingEnabled.TargetPrefix}` : 'Not configured';
@@ -226,16 +137,16 @@ export class AwsInfraGuardianAgent extends Agent {
           const enc = await s3Client.send(new GetBucketEncryptionCommand({ Bucket: bucketName }));
           encryptionStatus = enc.ServerSideEncryptionConfiguration?.Rules ? 'Default encryption configured' : 'Default encryption not configured';
         } catch (e: any) { encryptionStatus = e.name === 'NoSuchEncryptionConfiguration' ? 'Default encryption not configured' : `Error fetching encryption: ${e.name}`; }
-        
+
         try {
           const pab = await s3Client.send(new GetPublicAccessBlockCommand({ Bucket: bucketName }));
           publicAccessBlockStatus = pab.PublicAccessBlockConfiguration ? `Configured: ${JSON.stringify(pab.PublicAccessBlockConfiguration)}` : 'Not configured';
         } catch (e: any) { publicAccessBlockStatus = e.name === 'NoSuchPublicAccessBlockConfiguration' ? 'Not configured (recommended to enable)' : `Error fetching PAB: ${e.name}`; }
 
         try {
-            const tags = await s3Client.send(new GetBucketTaggingCommand({ Bucket: bucketName }));
-            tagsStatus = tags.TagSet && tags.TagSet.length > 0 ? `${tags.TagSet.length} tags configured` : 'No tags configured';
-        } catch (e:any) { tagsStatus = e.name === 'NoSuchTagSet' ? 'No tags configured' : `Error fetching tags: ${e.name}`; }
+          const tags = await s3Client.send(new GetBucketTaggingCommand({ Bucket: bucketName }));
+          tagsStatus = tags.TagSet && tags.TagSet.length > 0 ? `${tags.TagSet.length} tags configured` : 'No tags configured';
+        } catch (e: any) { tagsStatus = e.name === 'NoSuchTagSet' ? 'No tags configured' : `Error fetching tags: ${e.name}`; }
 
         const s3ConfigContext = `
           - Bucket Policy Status: ${policyStatus}
@@ -287,6 +198,7 @@ Important Instructions:
 -   The 'objectCount' in a recommendation can refer to relevant items observed in the *provided* object list/patterns.
 -   The 'totalSize' in a recommendation should usually be "User to determine based on full scan".
 -   No "TODOs" in the output.
+- Don't give generic recommendations. Give specific recommendations backed by data. Like X%/Y of objects should be done ZZ etc.
         `.trim();
 
         const { model } = getMyModel();
@@ -296,7 +208,7 @@ Important Instructions:
           schema: S3BucketAnalysisSchema,
           prompt: userPromptContent, // Using prompt field as per Vercel AI SDK docs for more complex prompts
         });
-        
+
         // Ensure fixed values are set correctly, overriding LLM if necessary
         let finalObject = response.object;
         finalObject.bucketName = bucketName; // Enforce correct bucketName
@@ -313,23 +225,23 @@ Important Instructions:
       name: 'create_a_report_for_all_s3_buckets',
       description: 'Step 4: Creates a consolidated, structured S3 infrastructure report (JSON object) from multiple S3 bucket analyses. Adheres to ConsolidatedS3ReportSchema.',
       schema: z.object({
-        bucketAnalyses: z.array(S3BucketAnalysisSchema).min(1,"At least one bucket analysis is required.").describe('An array of detailed S3 bucket analysis objects.'),
+        bucketAnalyses: z.array(S3BucketAnalysisSchema).min(1, "At least one bucket analysis is required.").describe('An array of detailed S3 bucket analysis objects.'),
       }),
       run: async (params, _messages) => {
         console.log(`create_a_report_for_all_s3_buckets starting....`)
         const { bucketAnalyses } = params.args;
         const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-        
+
 
         // Prepare a summary of input for the LLM.
         // The LLM will use this to generate the executive summary and aggregate stats.
         const inputSummaryForLLM = bucketAnalyses.map(analysis => ({
-            bucketName: analysis.bucketName,
-            overallAssessment: analysis.summary.overallAssessment,
-            findingsCountByPriority: analysis.summary.findingsByPriority,
-            findingsCountByCategory: analysis.summary.findingsByCategory,
-            recommendationsCount: analysis.recommendations.length,
+          bucketName: analysis.bucketName,
+          overallAssessment: analysis.summary.overallAssessment,
+          findingsCountByPriority: analysis.summary.findingsByPriority,
+          findingsCountByCategory: analysis.summary.findingsByCategory,
+          recommendationsCount: analysis.recommendations.length,
         }));
 
         const userPromptContent = `
@@ -365,6 +277,8 @@ Instruction:
 -   Focus on accurately calculating aggregate statistics for 'overallStatistics'.
 -   The 'detailedBucketAnalyses' part of the schema will be filled with the original input data by the calling code. You only need to generate the other parts of the ConsolidatedS3ReportSchema.
 -   Generate a complete JSON object matching the schema parts you are responsible for.
+- While it's good to be detailed, but don't have too much of text. Give only actionable recommendations.
+- Don't give generic recommendations. Give specific recommendations backed by data. Like X%/Y of objects should be done ZZ etc.
         `.trim();
 
         const { model } = getMyModel();
@@ -382,14 +296,14 @@ Instruction:
 
         // Combine LLM-generated parts with the original detailed analyses
         const finalReport: z.infer<typeof ConsolidatedS3ReportSchema> = {
-            ...response.object,
-            reportDate: currentDate, // Ensure correct date
-            detailedBucketAnalyses: bucketAnalyses, // Add back the detailed analyses
+          ...response.object,
+          reportDate: currentDate, // Ensure correct date
+          detailedBucketAnalyses: bucketAnalyses, // Add back the detailed analyses
         };
-        
+
         // Minor corrections or sanity checks for overallStatistics if needed (e.g. ensure totalBucketsAnalyzed matches)
         if (finalReport.overallStatistics) {
-            finalReport.overallStatistics.totalBucketsAnalyzed = bucketAnalyses.length;
+          finalReport.overallStatistics.totalBucketsAnalyzed = bucketAnalyses.length;
         }
 
         console.log(`create_a_report_for_all_s3_buckets done....`)
@@ -397,16 +311,20 @@ Instruction:
 
         const taskId = (params.action as any)?.task.id
 
-        if(!taskId) {
+        if (!taskId) {
           throw new Error('Task ID not found');
         }
 
+        const report = {
+          s3: finalReport,
+        }
+
         await drizzleDb.update(awsReports).set({
-          report: JSON.stringify(finalReport),
+          report,
           finishedAt: new Date(),
         }).where(eq(awsReports.id, taskId.toString()));
 
-        return JSON.stringify(finalReport);
+        return JSON.stringify(report);
       },
     });
 
@@ -415,66 +333,66 @@ Instruction:
     // TODO: for CloudFormation
   }
 
-//   async analyzeInfra({ accessKeyId, secretAccessKey, region = 'us-east-1' }: {
-//     accessKeyId: string;
-//     secretAccessKey: string;
-//     region?: string;
-//   }) {
-//     console.log('Analyzing AWS infrastructure...');
-    
-//     // Fetch initial data (delegating to other agents/capabilities for non-S3 for now)
-//     const cfnClient = new CloudFormationClient({ region, credentials: { accessKeyId, secretAccessKey } });
-//     const cfnResult = await cfnClient.send(new ListStacksCommand({}));
-//     const stackNames = (cfnResult.StackSummaries || []).map(s => s.StackName).filter(s => s !== undefined) as string[];
+  //   async analyzeInfra({ accessKeyId, secretAccessKey, region = 'us-east-1' }: {
+  //     accessKeyId: string;
+  //     secretAccessKey: string;
+  //     region?: string;
+  //   }) {
+  //     console.log('Analyzing AWS infrastructure...');
 
-//     const ec2Client = new EC2Client({ region, credentials: { accessKeyId, secretAccessKey } });
-//     // const ec2Result = await ec2Client.send(new DescribeInstancesCommand({})); // Example
-//     // const runningInstances = (ec2Result.Reservations || []).flatMap(r => /* ... */);
+  //     // Fetch initial data (delegating to other agents/capabilities for non-S3 for now)
+  //     const cfnClient = new CloudFormationClient({ region, credentials: { accessKeyId, secretAccessKey } });
+  //     const cfnResult = await cfnClient.send(new ListStacksCommand({}));
+  //     const stackNames = (cfnResult.StackSummaries || []).map(s => s.StackName).filter(s => s !== undefined) as string[];
 
-//     const cfnAgent = new CfnReportLocalAgent();
-//     // const ec2Agent = new Ec2ReportAgent();
+  //     const ec2Client = new EC2Client({ region, credentials: { accessKeyId, secretAccessKey } });
+  //     // const ec2Result = await ec2Client.send(new DescribeInstancesCommand({})); // Example
+  //     // const runningInstances = (ec2Result.Reservations || []).flatMap(r => /* ... */);
 
-//     const cfnReports = await Promise.all(stackNames.map(stackName =>
-//       cfnAgent.analyzeStack({ stackName, region, accessKeyId, secretAccessKey })
-//     ));
+  //     const cfnAgent = new CfnReportLocalAgent();
+  //     // const ec2Agent = new Ec2ReportAgent();
 
-//     // S3 Analysis Orchestration using new capabilities
-//     let allS3Analyses: z.infer<typeof S3BucketAnalysisSchema>[] = [];
-//     let s3FinalReport: z.infer<typeof ConsolidatedS3ReportSchema> | string = "S3 analysis not run or failed.";
+  //     const cfnReports = await Promise.all(stackNames.map(stackName =>
+  //       cfnAgent.analyzeStack({ stackName, region, accessKeyId, secretAccessKey })
+  //     ));
 
-//     try {
-//       const bucketsResultString = await this.capabilities['fetch_s3_buckets'].run({ args: { accessKeyId, secretAccessKey, region } }, []);
-//       const { buckets: fetchedBucketNames } = JSON.parse(bucketsResultString) as { buckets: string[] };
+  //     // S3 Analysis Orchestration using new capabilities
+  //     let allS3Analyses: z.infer<typeof S3BucketAnalysisSchema>[] = [];
+  //     let s3FinalReport: z.infer<typeof ConsolidatedS3ReportSchema> | string = "S3 analysis not run or failed.";
 
-//       if (fetchedBucketNames && fetchedBucketNames.length > 0) {
-//         for (const bucketName of fetchedBucketNames) {
-//           const objectsResultString = await this.capabilities['fetch_all_objects_in_s3_bucket'].run({ args: { bucketName, accessKeyId, secretAccessKey, region } }, []);
-//           const { objects: s3Objects } = JSON.parse(objectsResultString) as { objects: string[] };
-          
-//           const s3Analysis = await this.capabilities['analyze_s3_bucket'].run({ args: { bucketName, objects: s3Objects, accessKeyId, secretAccessKey, region } }, []) as z.infer<typeof S3BucketAnalysisSchema>;
-//           allS3Analyses.push(s3Analysis);
-//         }
+  //     try {
+  //       const bucketsResultString = await this.capabilities['fetch_s3_buckets'].run({ args: { accessKeyId, secretAccessKey, region } }, []);
+  //       const { buckets: fetchedBucketNames } = JSON.parse(bucketsResultString) as { buckets: string[] };
 
-//         if (allS3Analyses.length > 0) {
-//           s3FinalReport = await this.capabilities['create_a_report_for_all_s3_buckets'].run({ args: { bucketAnalyses: allS3Analyses } }, []) as z.infer<typeof ConsolidatedS3ReportSchema>;
-//           console.log("S3 Report (structured object):", JSON.stringify(s3FinalReport, null, 2));
-//         } else {
-//           s3FinalReport = "No S3 buckets yielded analysis results.";
-//         }
-//       } else {
-//         s3FinalReport = "No S3 buckets found or filtered for analysis.";
-//       }
-//     } catch (error) {
-//         console.error("Error during S3 analysis orchestration:", error);
-//         s3FinalReport = `S3 analysis failed: ${(error as Error).message}`;
-//     }
-    
-//     return {
-//       cloudFormation: cfnReports, // Assuming this is already structured or a text report
-//       s3: s3FinalReport, // Now a structured object or error string
-//       // ec2: ec2Reports,
-//     };
-//   }
+  //       if (fetchedBucketNames && fetchedBucketNames.length > 0) {
+  //         for (const bucketName of fetchedBucketNames) {
+  //           const objectsResultString = await this.capabilities['fetch_all_objects_in_s3_bucket'].run({ args: { bucketName, accessKeyId, secretAccessKey, region } }, []);
+  //           const { objects: s3Objects } = JSON.parse(objectsResultString) as { objects: string[] };
+
+  //           const s3Analysis = await this.capabilities['analyze_s3_bucket'].run({ args: { bucketName, objects: s3Objects, accessKeyId, secretAccessKey, region } }, []) as z.infer<typeof S3BucketAnalysisSchema>;
+  //           allS3Analyses.push(s3Analysis);
+  //         }
+
+  //         if (allS3Analyses.length > 0) {
+  //           s3FinalReport = await this.capabilities['create_a_report_for_all_s3_buckets'].run({ args: { bucketAnalyses: allS3Analyses } }, []) as z.infer<typeof ConsolidatedS3ReportSchema>;
+  //           console.log("S3 Report (structured object):", JSON.stringify(s3FinalReport, null, 2));
+  //         } else {
+  //           s3FinalReport = "No S3 buckets yielded analysis results.";
+  //         }
+  //       } else {
+  //         s3FinalReport = "No S3 buckets found or filtered for analysis.";
+  //       }
+  //     } catch (error) {
+  //         console.error("Error during S3 analysis orchestration:", error);
+  //         s3FinalReport = `S3 analysis failed: ${(error as Error).message}`;
+  //     }
+
+  //     return {
+  //       cloudFormation: cfnReports, // Assuming this is already structured or a text report
+  //       s3: s3FinalReport, // Now a structured object or error string
+  //       // ec2: ec2Reports,
+  //     };
+  //   }
 }
 
 export default AwsInfraGuardianAgent;

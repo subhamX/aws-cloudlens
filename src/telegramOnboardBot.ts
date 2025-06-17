@@ -6,7 +6,9 @@ import axios from 'axios'
 import { z } from 'zod'
 import { drizzleDb } from '../drizzle-db/db'
 import { awsReports, telegramUsers } from '../drizzle-db/schema/main'
-import { eq, isNull, and } from 'drizzle-orm'
+import { eq, isNull, and, isNotNull } from 'drizzle-orm'
+import { createCanvas } from 'canvas'
+import Chart from 'chart.js/auto'
 
 // Load environment variables
 dotenv.config()
@@ -84,7 +86,7 @@ class InfraGuardianTelegramBot extends Agent {
         if (invalidCommand) {
             helpText += '❌ *Invalid command or input.*\n\n'
         }
-        helpText += `ℹ️ *AWS Cost Insights*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS cost insights report\n/help - Show this help message\n\n*Onboarding status:* ${onboarded}`
+        helpText += `ℹ️ *AWS Cost Insights*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS cost insights report\n/lastreport - Get your last report with visualizations\n/help - Show this help message\n\n*Onboarding status:* ${onboarded}`
         return helpText;
     }
 
@@ -125,10 +127,31 @@ class InfraGuardianTelegramBot extends Agent {
             }
         })
 
+        // /lastreport command
+        this.bot.onText(/\/lastreport/, async (msg: Message) => {
+            const chatId = msg.chat.id
+            const state = await this.getUserState(chatId)
+            if (!state || !state.onboarded) {
+                await this.bot.sendMessage(chatId, '❌ Please onboard first using /onboard.')
+                return
+            }
+            await this.bot.sendMessage(chatId, '⏳ Fetching your last report...')
+            try {
+                const report = await this.getLastReport(state.telegramId)
+                if (!report) {
+                    await this.bot.sendMessage(chatId, '❌ No completed reports found. Use /report to generate a new one.')
+                    return
+                }
+                await this.sendReportWithVisualizations(chatId, report)
+            } catch (err) {
+                await this.bot.sendMessage(chatId, '❌ Failed to fetch last report. Please try again.')
+            }
+        })
+
         // /help command
         this.bot.onText(/\/help/, async (msg: Message) => {
             const chatId = msg.chat.id
-            await this.bot.sendMessage(chatId, `ℹ️ *Help*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS cost insights report\n/help - Show this help message`, { parse_mode: 'Markdown' })
+            await this.bot.sendMessage(chatId, `ℹ️ *Help*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS cost insights report\n/lastreport - Get your last report with visualizations\n/help - Show this help message`, { parse_mode: 'Markdown' })
         })
 
         // Handle onboarding steps and user replies
@@ -187,8 +210,6 @@ class InfraGuardianTelegramBot extends Agent {
                 await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
             }
         })
-
-
 
         this.bot.on('polling_error', (error: Error) => {
             console.error('Telegram polling error:', error)
@@ -249,7 +270,6 @@ class InfraGuardianTelegramBot extends Agent {
             await drizzleDb.insert(awsReports).values({
                 id: task.id.toString(),
                 telegramUserId: state.telegramId,
-                report: '',
                 startedAt: new Date(),
                 finishedAt: null
             })
@@ -328,6 +348,549 @@ class InfraGuardianTelegramBot extends Agent {
         } catch (error) {
             console.error('❌ Error starting bot:', error)
             process.exit(1)
+        }
+    }
+
+    // Get the last completed report for a user
+    private async getLastReport(telegramId: string) {
+        const reports = await drizzleDb.select().from(awsReports)
+            .where(
+                and(
+                    eq(awsReports.telegramUserId, telegramId),
+                    isNotNull(awsReports.finishedAt)
+                )
+            )
+            .orderBy(awsReports.startedAt)
+            .limit(1)
+
+        if (reports.length === 0) return null
+        return reports[0]
+    }
+
+    // Get last 3 reports for trend analysis
+    private async getLastReports(telegramId: string, limit: number = 3) {
+        const reports = await drizzleDb.select().from(awsReports)
+            .where(
+                and(
+                    eq(awsReports.telegramUserId, telegramId),
+                    isNotNull(awsReports.finishedAt)
+                )
+            )
+            .orderBy(awsReports.startedAt)
+            .limit(limit)
+
+        return reports
+    }
+
+    // Generate and send charts for the report
+    private async generateAndSendCharts(chatId: number, reportData: typeof awsReports.$inferSelect['report'], telegramId: string) {
+        try {
+            if (!reportData?.s3?.overallStatistics) return
+
+            const stats = reportData.s3.overallStatistics
+
+            // Create canvas for priority chart - Using Doughnut with center text
+            const priorityCanvas = createCanvas(800, 400)
+            const priorityCtx = priorityCanvas.getContext('2d')
+
+            // Priority chart
+            new Chart(priorityCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Critical', 'High', 'Medium', 'Low'],
+                    datasets: [{
+                        data: [
+                            stats.findingsByPriority?.critical || 0,
+                            stats.findingsByPriority?.high || 0,
+                            stats.findingsByPriority?.medium || 0,
+                            stats.findingsByPriority?.low || 0
+                        ],
+                        backgroundColor: [
+                            '#dc3545', // Critical - Red
+                            '#fd7e14', // High - Orange
+                            '#ffc107', // Medium - Yellow
+                            '#20c997'  // Low - Teal
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '60%',
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Findings by Priority',
+                            font: {
+                                size: 20,
+                                weight: 'bold'
+                            },
+                            padding: 20
+                        },
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 20,
+                                font: {
+                                    size: 14
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const data = context.dataset.data as number[];
+                                    const total = data.reduce((sum, val) => sum + (val || 0), 0);
+                                    const value = context.raw as number;
+                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                    return `${value} findings (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+
+            // Create canvas for category chart - Using Bar chart with horizontal layout
+            const categoryCanvas = createCanvas(800, 400)
+            const categoryCtx = categoryCanvas.getContext('2d')
+
+            // Category chart
+            new Chart(categoryCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Security', 'Cost', 'Storage', 'Performance', 'Other'],
+                    datasets: [{
+                        label: 'Number of Findings',
+                        data: [
+                            stats.findingsByCategory?.security || 0,
+                            stats.findingsByCategory?.cost || 0,
+                            stats.findingsByCategory?.storage || 0,
+                            stats.findingsByCategory?.performance || 0,
+                            stats.findingsByCategory?.other || 0
+                        ],
+                        backgroundColor: [
+                            '#0d6efd', // Security - Blue
+                            '#198754', // Cost - Green
+                            '#6f42c1', // Storage - Purple
+                            '#0dcaf0', // Performance - Cyan
+                            '#6c757d'  // Other - Gray
+                        ],
+                        borderWidth: 1,
+                        borderColor: '#ffffff',
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Findings by Category',
+                            font: {
+                                size: 20,
+                                weight: 'bold'
+                            },
+                            padding: 20
+                        },
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const data = context.dataset.data as number[];
+                                    const total = data.reduce((sum, val) => sum + (val || 0), 0);
+                                    const value = context.raw as number;
+                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                    return `${value} findings (${percentage}%)`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Findings',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                }
+                            },
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            })
+
+            // Create canvas for priority distribution - Using Stacked Bar
+            const priorityDistCanvas = createCanvas(800, 400)
+            const priorityDistCtx = priorityDistCanvas.getContext('2d')
+
+            // Calculate total findings
+            const findingsValues = Object.values(stats.findingsByPriority || {})
+                .map(val => typeof val === 'number' ? val : 0);
+            const totalFindings = findingsValues.reduce((sum, val) => sum + val, 0);
+
+            // Priority distribution chart
+            new Chart(priorityDistCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Findings Distribution'],
+                    datasets: [
+                        {
+                            label: 'Critical',
+                            data: [stats.findingsByPriority?.critical || 0],
+                            backgroundColor: '#dc3545',
+                            borderWidth: 1,
+                            borderColor: '#ffffff'
+                        },
+                        {
+                            label: 'High',
+                            data: [stats.findingsByPriority?.high || 0],
+                            backgroundColor: '#fd7e14',
+                            borderWidth: 1,
+                            borderColor: '#ffffff'
+                        },
+                        {
+                            label: 'Medium',
+                            data: [stats.findingsByPriority?.medium || 0],
+                            backgroundColor: '#ffc107',
+                            borderWidth: 1,
+                            borderColor: '#ffffff'
+                        },
+                        {
+                            label: 'Low',
+                            data: [stats.findingsByPriority?.low || 0],
+                            backgroundColor: '#20c997',
+                            borderWidth: 1,
+                            borderColor: '#ffffff'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Priority Distribution',
+                            font: {
+                                size: 20,
+                                weight: 'bold'
+                            },
+                            padding: 20
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const value = context.raw as number;
+                                    const percentage = totalFindings > 0 ? ((value / totalFindings) * 100).toFixed(1) : '0.0';
+                                    return `${context.dataset.label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Findings',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+
+            // Convert canvases to buffers
+            const priorityBuffer = priorityCanvas.toBuffer('image/png')
+            const categoryBuffer = categoryCanvas.toBuffer('image/png')
+            const priorityDistBuffer = priorityDistCanvas.toBuffer('image/png')
+
+            // Send charts
+            await this.bot.sendPhoto(chatId, priorityBuffer, {
+                caption: '🎯 Priority Distribution (Doughnut View)'
+            })
+            await this.bot.sendPhoto(chatId, priorityDistBuffer, {
+                caption: '📊 Priority Distribution (Stacked View)'
+            })
+            await this.bot.sendPhoto(chatId, categoryBuffer, {
+                caption: '📈 Category-wise Findings (Horizontal Bar View)'
+            })
+
+            // Get last 3 reports for trend analysis
+            const lastReports = await this.getLastReports(telegramId)
+            if (lastReports.length > 1) {
+                // Create canvas for trend chart
+                const trendCanvas = createCanvas(1000, 500)
+                const trendCtx = trendCanvas.getContext('2d')
+
+                // Prepare trend data
+                const trendData = lastReports.map(report => {
+                    const data = report.report
+                    return {
+                        date: new Date(report.startedAt || new Date()).toLocaleDateString(),
+                        critical: data?.s3?.overallStatistics?.findingsByPriority?.critical || 0,
+                        high: data?.s3?.overallStatistics?.findingsByPriority?.high || 0,
+                        medium: data?.s3?.overallStatistics?.findingsByPriority?.medium || 0,
+                        low: data?.s3?.overallStatistics?.findingsByPriority?.low || 0,
+                        total: data?.s3?.overallStatistics?.totalRecommendationsMade || 0
+                    }
+                })
+
+                // Trend chart
+                new Chart(trendCtx, {
+                    type: 'line',
+                    data: {
+                        labels: trendData.map(d => d.date),
+                        datasets: [
+                            {
+                                label: 'Critical',
+                                data: trendData.map(d => d.critical),
+                                borderColor: '#dc3545',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'High',
+                                data: trendData.map(d => d.high),
+                                borderColor: '#fd7e14',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'Medium',
+                                data: trendData.map(d => d.medium),
+                                borderColor: '#ffc107',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'Low',
+                                data: trendData.map(d => d.low),
+                                borderColor: '#20c997',
+                                tension: 0.1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Findings Trend Analysis',
+                                font: {
+                                    size: 20
+                                }
+                            },
+                            legend: {
+                                position: 'bottom'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Findings'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Report Date'
+                                }
+                            }
+                        }
+                    }
+                })
+
+                // Create canvas for progress chart
+                const progressCanvas = createCanvas(800, 400)
+                const progressCtx = progressCanvas.getContext('2d')
+
+                // Calculate progress
+                const firstReport = trendData[0]
+                const latestReport = trendData[trendData.length - 1]
+                const progress = {
+                    critical: ((firstReport.critical - latestReport.critical) / firstReport.critical * 100).toFixed(1),
+                    high: ((firstReport.high - latestReport.high) / firstReport.high * 100).toFixed(1),
+                    medium: ((firstReport.medium - latestReport.medium) / firstReport.medium * 100).toFixed(1),
+                    low: ((firstReport.low - latestReport.low) / firstReport.low * 100).toFixed(1)
+                }
+
+                // Progress chart
+                new Chart(progressCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Critical', 'High', 'Medium', 'Low'],
+                        datasets: [{
+                            label: 'Improvement %',
+                            data: [
+                                parseFloat(progress.critical),
+                                parseFloat(progress.high),
+                                parseFloat(progress.medium),
+                                parseFloat(progress.low)
+                            ],
+                            backgroundColor: [
+                                '#dc3545',
+                                '#fd7e14',
+                                '#ffc107',
+                                '#20c997'
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Improvement Since First Report',
+                                font: {
+                                    size: 20
+                                }
+                            },
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Improvement Percentage'
+                                }
+                            }
+                        }
+                    }
+                })
+
+                // Convert trend and progress canvases to buffers
+                const trendBuffer = trendCanvas.toBuffer('image/png')
+                const progressBuffer = progressCanvas.toBuffer('image/png')
+
+                // Send trend and progress charts
+                await this.bot.sendPhoto(chatId, trendBuffer, {
+                    caption: '📈 Findings Trend Analysis (Last 3 Reports)'
+                })
+                await this.bot.sendPhoto(chatId, progressBuffer, {
+                    caption: '📊 Improvement Progress'
+                })
+            }
+
+        } catch (error) {
+            console.error('Error generating charts:', error)
+        }
+    }
+
+    // Send report with visualizations
+    private async sendReportWithVisualizations(chatId: number, report: typeof awsReports.$inferSelect) {
+        try {
+            const reportData = report.report
+
+            if(!reportData) {
+                await this.bot.sendMessage(chatId, '❌ No report data found.')
+                return
+            }
+            
+            // Send executive summary
+            if (reportData.s3?.executiveSummary) {
+                await this.bot.sendMessage(chatId, `📊 *Executive Summary*\n\n${reportData.s3.executiveSummary}`, { parse_mode: 'Markdown' })
+            }
+
+            // Generate and send charts
+            await this.generateAndSendCharts(chatId, reportData, report.telegramUserId || '')
+
+            // Send overall statistics
+            if (reportData.s3?.overallStatistics) {
+                const stats = reportData.s3.overallStatistics
+                const statsMessage = `📈 *Overall Statistics*\n\n` +
+                    `• Total Buckets Analyzed: ${stats.totalBucketsAnalyzed}\n` +
+                    `• Total Recommendations: ${stats.totalRecommendationsMade}\n` +
+                    `• Critical Findings: ${stats.findingsByPriority?.critical || 0}\n` +
+                    `• High Priority Findings: ${stats.findingsByPriority?.high || 0}\n` +
+                    `• Medium Priority Findings: ${stats.findingsByPriority?.medium || 0}\n` +
+                    `• Low Priority Findings: ${stats.findingsByPriority?.low || 0}\n\n` +
+                    `*Findings by Category:*\n` +
+                    `• Security: ${stats.findingsByCategory?.security || 0}\n` +
+                    `• Cost: ${stats.findingsByCategory?.cost || 0}\n` +
+                    `• Storage: ${stats.findingsByCategory?.storage || 0}\n` +
+                    `• Performance: ${stats.findingsByCategory?.performance || 0}\n` +
+                    `• Other: ${stats.findingsByCategory?.other || 0}`
+                
+                await this.bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' })
+            }
+
+            // Send strategic recommendations
+            if (reportData.s3?.strategicRecommendations?.length > 0) {
+                const recommendations = reportData.s3.strategicRecommendations
+                let recommendationsMessage = `🎯 *Strategic Recommendations*\n\n`
+                recommendations.forEach((rec: any, index: number) => {
+                    recommendationsMessage += `${index + 1}. *${rec.title}*\n` +
+                        `${rec.description}\n` +
+                        `Impact: ${rec.potentialImpact}\n`
+                    if (rec.suggestedActions?.length > 0) {
+                        recommendationsMessage += `Suggested Actions:\n${rec.suggestedActions.map((action: string) => `• ${action}`).join('\n')}\n`
+                    }
+                    recommendationsMessage += '\n'
+                })
+                await this.bot.sendMessage(chatId, recommendationsMessage, { parse_mode: 'Markdown' })
+            }
+
+            // Send detailed bucket analyses
+            if (reportData.s3?.detailedBucketAnalyses?.length > 0) {
+                const analyses = reportData.s3.detailedBucketAnalyses
+                for (const analysis of analyses) {
+
+                    let bucketMessage = `🔍 *Bucket Analysis: ${analysis.bucketName}*\n\n` +
+                        `*Overall Assessment:*\n${analysis.summary.overallAssessment}\n\n` +
+                        `*Findings by Priority:*\n` +
+                        `• Critical: ${analysis.summary.findingsByPriority?.critical || 0}\n` +
+                        `• High: ${analysis.summary.findingsByPriority?.high || 0}\n` +
+                        `• Medium: ${analysis.summary.findingsByPriority?.medium || 0}\n` +
+                        `• Low: ${analysis.summary.findingsByPriority?.low || 0}\n\n` +
+                        `*Key Recommendations:*\n`
+                    
+                    // Add top 3 recommendations
+                    const topRecommendations = analysis.recommendations
+                        .sort((a, b) => {
+                            const priorityOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 }
+                            return priorityOrder[a.impact] - priorityOrder[b.impact]
+                        })
+                        .slice(0, 3)
+                    
+                    topRecommendations.forEach((rec) => {
+                        bucketMessage += `• *${rec.category}* (${rec.impact}): ${rec.description}\n`
+                    })
+                    
+                    await this.bot.sendMessage(chatId, bucketMessage, { parse_mode: 'Markdown' })
+                }
+            }
+        } catch (error) {
+            console.error('Error sending report with visualizations:', error)
+            await this.bot.sendMessage(chatId, '❌ Error formatting report. Here is the raw report:', { parse_mode: 'Markdown' })
+            await this.bot.sendMessage(chatId, 'No report content available')
         }
     }
 }

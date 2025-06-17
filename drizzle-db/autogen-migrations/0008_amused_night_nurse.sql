@@ -1,0 +1,1 @@
+DROP TABLE "aws_reports" CASCADE;

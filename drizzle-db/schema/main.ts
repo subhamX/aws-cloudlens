@@ -1,4 +1,6 @@
-import { pgTable, integer, varchar, boolean, timestamp, text } from "drizzle-orm/pg-core"
+import { pgTable, integer, varchar, boolean, timestamp, text, json } from "drizzle-orm/pg-core"
+import { ConsolidatedS3ReportSchema } from "../../src/s3Types"
+import { z } from "zod"
 
 export const telegramUsers = pgTable("telegram_users", {
   telegramId: varchar("telegram_id", { length: 20 }).primaryKey(),
@@ -14,7 +16,9 @@ export const telegramUsers = pgTable("telegram_users", {
 export const awsReports = pgTable("aws_reports", {
   id: varchar("id").primaryKey(),
   telegramUserId: varchar({ length: 20 }).references(() => telegramUsers.telegramId),
-  report: text("report"),
+  report: json("report").$type<{
+    s3: z.infer<typeof ConsolidatedS3ReportSchema>
+  }>(),
   startedAt: timestamp("started_at").defaultNow(),
   finishedAt: timestamp("finished_at"),
 })
