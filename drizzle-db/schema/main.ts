@@ -25,6 +25,7 @@ export const awsReports = pgTable("aws_reports", {
   }>(),
   startedAt: timestamp("started_at").defaultNow(),
   finishedAt: timestamp("finished_at"),
+  deliveredAt: timestamp("delivered_at"),
 })
 
 export const stagingData = pgTable("staging_data", {

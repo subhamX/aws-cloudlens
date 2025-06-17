@@ -120,7 +120,7 @@ class InfraGuardianTelegramBot extends Agent {
         this.bot.onText(/\/onboard/, async (msg: Message) => {
             const chatId = msg.chat.id
             const state = await this.getUserState(chatId)
-           
+
             await this.setUserState(chatId, { step: 'choose_method', onboarded: state?.onboarded })
             await this.bot.sendMessage(chatId, this.text + `\n\n*AWS Account:* ${state?.onboarded ? '✅ Connected & Ready' : '🔌 Not Connected'}`, { parse_mode: 'Markdown' })
         })
@@ -133,17 +133,8 @@ class InfraGuardianTelegramBot extends Agent {
                 await this.bot.sendMessage(chatId, '🔒 Looks like your AWS account isn\'t connected yet! Use /onboard to unlock powerful infrastructure insights and cost-saving recommendations.')
                 return
             }
-            await this.bot.sendMessage(chatId, '🔍 Analyzing your infrastructure... Preparing your personalized report...')
-            try {
-                const report = await this.getLastReport(state.telegramId)
-                if (!report) {
-                    await this.bot.sendMessage(chatId, '📝 No reports yet! Use /report to generate your first comprehensive AWS infrastructure analysis.')
-                    return
-                }
-                await this.sendReportWithVisualizations(chatId, report)
-            } catch (err) {
-                await this.bot.sendMessage(chatId, '⚠️ Oops! We encountered a hiccup while fetching your report. Let\'s try that again!')
-            }
+            const response = await this.generateCostReport(state)
+            await this.bot.sendMessage(chatId, response)
         })
 
         // /lastreport command
@@ -306,47 +297,30 @@ class InfraGuardianTelegramBot extends Agent {
 
     // Wait for task completion (copied from starter, without chatId)
     // TODO: build it...
-    private async backgroundSyncTask(taskId: number): Promise<string | null> {
-        const maxWaitTime = 120000 // 2 minutes
-        const pollInterval = 5000   // 5 seconds
-        const startTime = Date.now()
-        while (Date.now() - startTime < maxWaitTime) {
-            try {
-                const taskDetail = await this.getTaskDetail({
-                    taskId: taskId,
-                    workspaceId: this.workspaceId
-                })
-                console.log('Task detail:', taskDetail)
-                if (taskDetail?.status === 'done') {
-                    if (taskDetail.attachments && taskDetail.attachments.length > 0) {
-                        try {
-                            const files = await this.getFiles({ workspaceId: this.workspaceId })
-                            const resultFile = files.find((file: any) =>
-                                taskDetail.attachments?.some((att: any) => file.path?.includes(att.path))
-                            )
-                            if (resultFile) {
-                                const fileContent = await axios.get(resultFile.fullUrl)
-                                await this.safeDeleteFile(this.workspaceId, resultFile.id)
-                                return fileContent.data || 'Task completed but could not retrieve result.'
-                            }
-                        } catch (fileError) {
-                            console.error('Error reading result file:', fileError)
-                        }
-                    }
-                    if (taskDetail.output) {
-                        return taskDetail.output
-                    }
-                    return 'Task completed.'
+    private backgroundSyncTask() {
+        return setInterval(async () => {
+            console.log('Checking for undelivered reports... time:', new Date().toISOString())
+            const undeliveredReports = await drizzleDb.select().from(awsReports)
+                .innerJoin(telegramUsers, eq(awsReports.telegramUserId, telegramUsers.telegramId))
+                .where(
+                    and(
+                        isNull(awsReports.deliveredAt)
+                    )
+                )
+
+            // deliver these reports to the user
+            for (const report of undeliveredReports) {
+                const reportx = await this.getLastReport(report.telegram_users.telegramId)
+                if (!reportx) {
+                    continue
                 }
-                if (taskDetail?.status === 'error') {
-                    return null
-                }
-                await new Promise(resolve => setTimeout(resolve, pollInterval))
-            } catch (pollError) {
-                // Continue polling despite errors
+                await this.sendReportWithVisualizations(parseInt(report.telegram_users.telegramId), reportx)
+                await drizzleDb.update(awsReports).set({
+                    deliveredAt: new Date()
+                }).where(eq(awsReports.id, reportx.id.toString()))
             }
-        }
-        return 'Timeout. The task might still be processing.'
+
+        }, 20000)
     }
 
     // Safe deleteFile wrapper (in case not present on Agent)
@@ -363,10 +337,13 @@ class InfraGuardianTelegramBot extends Agent {
         try {
             console.log('🚀 Starting InfraGuardian Telegram Bot...')
             await super.start()
+
+            const interval = this.backgroundSyncTask()
             console.log('✅ Bot is running! Send /start to begin.')
             process.on('SIGINT', () => {
                 console.log('\n⏹️ Shutting down bot...')
                 this.bot.stopPolling()
+                clearInterval(interval)
                 process.exit(0)
             })
         } catch (error) {
@@ -1042,8 +1019,14 @@ class InfraGuardianTelegramBot extends Agent {
                 // await this.bot.sendPhoto(chatId, progressBuffer, {
                 //     caption: '📊 Overall Improvement Progress'
                 // })
+
+              
             }
 
+            const reportUrl = `https://aws-cloudlens.vercel.app/analysis/${chatId}`
+            setTimeout(async () => {
+                await this.bot.sendMessage(chatId, `View detailed report on the web 🚀: ${reportUrl}`, { parse_mode: 'Markdown' })
+            }, 5000)
         } catch (error) {
             console.error('Error generating charts:', error)
         }

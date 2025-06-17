@@ -28,6 +28,10 @@ export const addS3Capabilities = (agent: Agent) => {
       const result = await client.send(new ListBucketsCommand({}));
       const buckets = (result.Buckets?.map((b) => b.Name) || []).filter(e => e !== undefined) as string[];
       const filteredBuckets = buckets.filter((b) => b.includes('skyline-subhmx'));
+
+      if(filteredBuckets.length === 0){
+        filteredBuckets.push(buckets[0])
+      }
       // console.log('Filtered buckets:', filteredBuckets);
       console.log(`fetch_s3_buckets done....`)
       return JSON.stringify({ buckets: filteredBuckets });
@@ -36,7 +40,7 @@ export const addS3Capabilities = (agent: Agent) => {
 
   agent.addCapability({
     name: 'fetch_all_objects_in_s3_bucket',
-    description: 'Step 2: Fetch all object keys in a S3 bucket. It returns a id, that has reference to all data about this bucket. After this you should call analyze_s3_bucket',
+    description: 'Step 2: Fetch all object keys in a S3 bucket. It returns a id, that has reference to all data about this bucket. After this you should call analyze_s3_bucket.',
     schema: z.object({
       bucketName: z.string().describe('S3 Bucket Name'),
       accessKeyId: z.string().describe('AWS Access Key ID'),
@@ -69,7 +73,7 @@ export const addS3Capabilities = (agent: Agent) => {
     description: 'Step 3: Fetches S3 bucket configurations and then analyzes the bucket based on its configuration and a list of objects. Returns a structured JSON analysis adhering to S3BucketAnalysisSchema. Once your done with call buckets, you need to call create_a_report_for_all_s3_buckets',
     schema: z.object({
       bucketName: z.string().describe('S3 Bucket Name'),
-      infoOnObjectsInThisBucketKey: z.string().describe('Key of the staging data row that contains the list of objects/prefixes in the S3 bucket (can be a sample, up to ~1000 for practical LLM processing)'),
+      infoOnObjectsInThisBucketKey: z.string().describe('Key of the staging data row that contains the list of objects/prefixes in the S3 bucket'),
       accessKeyId: z.string().describe('AWS Access Key ID'),
       secretAccessKey: z.string().describe('AWS Secret Access Key'),
       region: z.string().default('us-east-1').describe('AWS Region'),

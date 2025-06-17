@@ -1,0 +1,1 @@
+ALTER TABLE "aws_reports" ADD COLUMN "delivered_at" timestamp;
