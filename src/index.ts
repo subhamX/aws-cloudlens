@@ -1,11 +1,10 @@
 import { z } from 'zod'
 import { Agent } from '@openserv-labs/sdk'
 import 'dotenv/config'
-import InfraGuardianTelegramBot from './telegramOnboardBot'
-
+import AwsInfraGuardianAgent from './awsReportAgent'
 
 // Create the agent
-const agent = new InfraGuardianTelegramBot()
+const agent = new AwsInfraGuardianAgent()
 
 // // Add sum capability
 // agent.addCapability({

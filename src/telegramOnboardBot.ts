@@ -19,7 +19,7 @@ class InfraGuardianTelegramBot extends Agent {
   private infraGuardianAgentId: number // ID of the InfraGuardian Agent
 
   constructor() {
-    const requiredVars = ['TELEGRAM_BOT_TOKEN', 'OPENSERV_API_KEY', 'WORKSPACE_ID', 'INFRAGUARDIAN_AGENT_ID']
+    const requiredVars = ['TELEGRAM_BOT_TOKEN', 'OPENSERV_API_KEY', 'WORKSPACE_ID', 'INFRAGUARDIAN_AWS_AGENT_ID']
     const missingVars = requiredVars.filter(varName => !process.env[varName])
     if (missingVars.length > 0) {
       console.error('❌ Missing required environment variables:', missingVars)
@@ -31,7 +31,7 @@ class InfraGuardianTelegramBot extends Agent {
     })
     this.bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true })
     this.workspaceId = parseInt(process.env.WORKSPACE_ID!)
-    this.infraGuardianAgentId = parseInt(process.env.INFRAGUARDIAN_AGENT_ID!)
+    this.infraGuardianAgentId = parseInt(process.env.INFRAGUARDIAN_AWS_AGENT_ID!)
     this.setupHandlers()
   }
 
