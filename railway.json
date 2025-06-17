@@ -1,0 +1,31 @@
+{
+    "$schema": "https://railway.com/railway.schema.json",
+    "services": [
+        {
+            "name": "cloudlens",
+            "build": {
+                "builder": "DOCKERFILE",
+                "dockerfilePath": "Dockerfile.cloudlens"
+            },
+            "deploy": {
+                "startCommand": "bun run cloudlens-prod",
+                "healthcheckPath": "/",
+                "healthcheckTimeout": 100,
+                "restartPolicyType": "on-failure"
+            }
+        },
+        {
+            "name": "telegram",
+            "build": {
+                "builder": "DOCKERFILE",
+                "dockerfilePath": "Dockerfile.telegram"
+            },
+            "deploy": {
+                "startCommand": "bun run telegram-prod",
+                "healthcheckPath": "/",
+                "healthcheckTimeout": 100,
+                "restartPolicyType": "on-failure"
+            }
+        }
+    ]
+}
