@@ -14,7 +14,7 @@ export class AwsInfraGuardianAgent extends Agent {
       apiKey: process.env.OPENSERV_API_KEY_AWS!,
     });
     addS3Capabilities(this);
-    addEC2EBSCapabilities(this);
+    // addEC2EBSCapabilities(this);
     addCfnCapabilities(this);
   }
 }

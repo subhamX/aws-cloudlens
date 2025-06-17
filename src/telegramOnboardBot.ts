@@ -28,7 +28,7 @@ class InfraGuardianTelegramBot extends Agent {
             process.exit(1)
         }
         super({
-            systemPrompt: 'You are a helpful assistant for onboarding users to InfraGuardianProject and generating AWS cost insights reports.',
+            systemPrompt: 'You are a helpful assistant for onboarding users to CloudLens 🚀 and generating AWS cost insights reports.',
             apiKey: process.env.OPENSERV_API_KEY_TELEGRAM!,
             port: port,
         })
@@ -80,22 +80,27 @@ class InfraGuardianTelegramBot extends Agent {
         console.log(`Insert successful!`)
     }
 
-    private async getHelpText(chatId: number, userState: typeof telegramUsers.$inferSelect | null, invalidCommand = false): Promise<string> {
+    private async getHelpText(chatId: number, userState: typeof telegramUsers.$inferSelect | null, invalidCommand = false, errorMessage?: string): Promise<string> {
         const onboarded = userState?.onboarded ? '✅ Onboarded' : '❌ Not onboarded'
         let helpText = ''
-        if (invalidCommand) {
+        if (invalidCommand && !errorMessage) {
             helpText += '❌ *Invalid command or input.*\n\n'
+        } else if (errorMessage) {
+            helpText += `❌ *${errorMessage}*\n\n`
         }
         helpText += `ℹ️ *CloudLens: Monitors your AWS account, gives you comprehensive insights on cost, security, and practical ways of saving costs.*\n\nCommands:\n/start - Welcome\n/onboard - Start onboarding\n/report - Get AWS infrastructure report\n/lastreport - Get your last report with visualizations\n/help - Show this help message\n\n*Onboarding status:* ${onboarded}`
         return helpText;
     }
 
+
+
+    text = `👋 Welcome to InfraGuardian Onboarding Bot!\n\nYou can onboard your AWS account to InfraGuardianProject in two ways:\n1️⃣ Role-based access (coming soon)\n2️⃣ Provide Read-only AWS credentials\n\nPlease reply with 1 or 2 to choose your onboarding method.`
     private setupHandlers() {
         // /start command
         this.bot.onText(/\/start/, async (msg: Message) => {
             const chatId = msg.chat.id
             await this.setUserState(chatId, { step: 'choose_method' })
-            await this.bot.sendMessage(chatId, `👋 Welcome to InfraGuardian Onboarding Bot!\n\nYou can onboard your AWS account to InfraGuardianProject in two ways:\n1️⃣ Role-based access (recommended)\n2️⃣ Provide AWS credentials\n\nPlease reply with 1 or 2 to choose your onboarding method.`)
+            await this.bot.sendMessage(chatId, this.text)
         })
 
         // /onboard command
@@ -107,7 +112,7 @@ class InfraGuardianTelegramBot extends Agent {
                 return
             }
             await this.setUserState(chatId, { step: 'choose_method' })
-            await this.bot.sendMessage(chatId, `How would you like to onboard?\n\n1️⃣ Role-based access (recommended)\n2️⃣ Provide AWS credentials\n\nReply with 1 or 2.`)
+            await this.bot.sendMessage(chatId, this.text)
         })
 
         // /report command
@@ -170,11 +175,13 @@ class InfraGuardianTelegramBot extends Agent {
             // Step: choose onboarding method
             if (state.step === 'choose_method') {
                 if (text === '1') {
-                    await this.setUserState(chatId, { ...state, step: 'await_account_id', method: 'role' })
-                    await this.bot.sendMessage(chatId, `Please provide your AWS Account ID.${state.aws_account_id ? `\n\n(Previously: ${state.aws_account_id})` : ''}\n\nThen, grant cross-account access to this role ARN:\n${CROSS_ACCOUNT_ROLE_ARN}`)
+                    await this.bot.sendMessage(chatId, 'Role-based access is coming soon. Please choose option 2 to provide read-only AWS credentials.')
+                    return
+                    // await this.setUserState(chatId, { ...state, step: 'await_account_id', method: 'role' })
+                    // await this.bot.sendMessage(chatId, `Please provide your AWS Account ID.${state.aws_account_id ? `\n\n(Previously: ${state.aws_account_id})` : ''}\n\nThen, grant cross-account access to this role ARN:\n${CROSS_ACCOUNT_ROLE_ARN}`)
                 } else if (text === '2') {
                     await this.setUserState(chatId, { ...state, step: 'await_access_key', method: 'creds' })
-                    await this.bot.sendMessage(chatId, `Please provide your AWS Access Key ID:${state.aws_access_key_id ? `\n\n(Previously: ${state.aws_access_key_id})` : ''}`)
+                    await this.bot.sendMessage(chatId, `Please provide your AWS Access Key ID:${state.aws_access_key_id ? `\n\n(Previously: ${state.aws_access_key_id})` : '\n\n(Like: AKIAZBAHUYFYCFOIQFEJ)'}`)
                 } else {
                     const helpText = await this.getHelpText(chatId, state, true)
                     await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
@@ -184,7 +191,7 @@ class InfraGuardianTelegramBot extends Agent {
                     await this.setUserState(chatId, { ...state, step: null, method: 'role', onboarded: true, aws_account_id: text })
                     await this.bot.sendMessage(chatId, '✅ Onboarding complete via role-based access!\nYou can now use /report to get AWS cost insights.')
                 } else {
-                    const helpText = await this.getHelpText(chatId, state, true)
+                    const helpText = await this.getHelpText(chatId, state, true, 'Invalid AWS Account ID')
                     await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
                 }
             } else if (state.step === 'await_access_key') {
@@ -193,7 +200,7 @@ class InfraGuardianTelegramBot extends Agent {
                     await this.setUserState(chatId, { ...state, step: 'await_secret_key', aws_access_key_id: text, aws_secret_access_key: null })
                     await this.bot.sendMessage(chatId, `Now provide your AWS Secret Access Key:`)
                 } else {
-                    const helpText = await this.getHelpText(chatId, state, true)
+                    const helpText = await this.getHelpText(chatId, state, true, 'Invalid AWS Access Key ID')
                     await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
                 }
             } else if (state.step === 'await_secret_key') {
@@ -201,7 +208,7 @@ class InfraGuardianTelegramBot extends Agent {
                     await this.setUserState(chatId, { ...state, step: null, method: 'creds', onboarded: true, aws_secret_access_key: text })
                     await this.bot.sendMessage(chatId, '✅ Onboarding complete with credentials!\nYou can now use /report to get AWS cost insights.')
                 } else {
-                    const helpText = await this.getHelpText(chatId, state, true)
+                    const helpText = await this.getHelpText(chatId, state, true, 'Invalid AWS Secret Access Key')
                     await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' })
                 }
             } else {
