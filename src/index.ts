@@ -4,7 +4,7 @@ import 'dotenv/config'
 
 // Create the agent
 const agent = new Agent({
-  systemPrompt: 'You are an agent that sums two numbers'
+  systemPrompt: 'You are an agent that sums two numbers',
 })
 
 // Add sum capability
