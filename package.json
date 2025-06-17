@@ -10,7 +10,8 @@
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db": "bun run drizzle-kit generate && bun run drizzle-kit migrate"
   },
   "keywords": [
     "ai",
@@ -22,13 +23,18 @@
   "dependencies": {
     "@ngrok/ngrok": "^1.5.1",
     "@openserv-labs/sdk": "^1.2.0",
+    "@types/node-telegram-bot-api": "^0.64.9",
     "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.38.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "pg": "^8.13.1",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",
     "@typescript-eslint/eslint-plugin": "^7.1.0",
     "@typescript-eslint/parser": "^7.1.0",
+    "drizzle-kit": "^0.30.1",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.1.3",

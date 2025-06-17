@@ -1,0 +1,1 @@
+ALTER TABLE "telegram_users" ALTER COLUMN "telegram_id" SET DATA TYPE varchar(20);

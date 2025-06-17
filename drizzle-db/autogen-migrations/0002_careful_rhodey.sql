@@ -1,0 +1,1 @@
+-- ALTER TABLE "telegram_users" RENAME COLUMN "telegram_id" TO "telegramId";
